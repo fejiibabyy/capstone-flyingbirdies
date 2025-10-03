@@ -28,7 +28,7 @@ class _FlyingBirdiesAppState extends State<FlyingBirdiesApp> {
         decoration: const BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft, end: Alignment.bottomRight,
-            colors: [AppTheme.bgDark, Color(0xFF2A1852), AppTheme.bgDark],
+            colors: [AppTheme.bgDark, Color.fromARGB(255, 126, 74, 237), AppTheme.bgDark],
           ),
         ),
         child: Scaffold(
@@ -36,8 +36,24 @@ class _FlyingBirdiesAppState extends State<FlyingBirdiesApp> {
           appBar: AppBar(
             backgroundColor: Colors.transparent,
             surfaceTintColor: Colors.transparent,
-            title: const Text('Flying Birdies'),
+            centerTitle: true,
+           title: ShaderMask(
+          shaderCallback: (bounds) => const LinearGradient(
+            colors: [Color(0xFFFF6FD8), Color(0xFF9B6EFF)], // purple → deep blue
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ).createShader(bounds),
+          child: const Text(
+            'StrikePro',
+            style: TextStyle(
+              fontSize: 26,
+              fontWeight: FontWeight.bold,
+              color: Colors.white, // Needed but will be overridden by gradient
+            ),
           ),
+        ),
+          ),
+
           body: pages[index],
           bottomNavigationBar: NavigationBar(
             backgroundColor: const Color(0x111C2540),
