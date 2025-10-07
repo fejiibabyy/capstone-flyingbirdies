@@ -27,7 +27,8 @@ class _FlyingBirdiesAppState extends State<FlyingBirdiesApp> {
       home: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            begin: Alignment.topLeft, end: Alignment.bottomRight,
+            begin: Alignment.topLeft, 
+            end: Alignment.bottomRight,
             colors: [AppTheme.bgDark, Color.fromARGB(255, 126, 74, 237), AppTheme.bgDark],
           ),
         ),
@@ -37,35 +38,105 @@ class _FlyingBirdiesAppState extends State<FlyingBirdiesApp> {
             backgroundColor: Colors.transparent,
             surfaceTintColor: Colors.transparent,
             centerTitle: true,
-           title: ShaderMask(
-          shaderCallback: (bounds) => const LinearGradient(
-            colors: [Color(0xFFFF6FD8), Color(0xFF9B6EFF)], // purple → deep blue
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ).createShader(bounds),
-          child: const Text(
-            'StrikePro',
-            style: TextStyle(
-              fontSize: 26,
-              fontWeight: FontWeight.bold,
-              color: Colors.white, // Needed but will be overridden by gradient
+            elevation: 0,
+            title: ShaderMask(
+              shaderCallback: (bounds) => const LinearGradient(
+                colors: [Color(0xFFFF6FD8), Color(0xFF9B6EFF)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ).createShader(bounds),
+              child: const Text(
+                'StrikePro',
+                style: TextStyle(
+                  fontSize: 26,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
             ),
-          ),
-        ),
           ),
 
           body: pages[index],
-          bottomNavigationBar: NavigationBar(
-            backgroundColor: const Color(0x111C2540),
-            indicatorColor: const Color(0x336D28D9),
-            selectedIndex: index,
-            onDestinationSelected: (i) => setState(() => index = i),
-            destinations: const [
-              NavigationDestination(icon: Icon(Icons.dashboard_outlined), selectedIcon: Icon(Icons.dashboard), label: 'Live'),
-              NavigationDestination(icon: Icon(Icons.history_outlined), selectedIcon: Icon(Icons.history), label: 'History'),
-              NavigationDestination(icon: Icon(Icons.bar_chart_outlined), selectedIcon: Icon(Icons.bar_chart), label: 'Charts'),
-              NavigationDestination(icon: Icon(Icons.tips_and_updates_outlined), selectedIcon: Icon(Icons.tips_and_updates), label: 'Tips'),
-            ],
+          
+          bottomNavigationBar: Container(
+            decoration: BoxDecoration(
+              color: const Color.fromARGB(240, 11, 16, 32), // Solid dark background
+              border: Border(
+                top: BorderSide(
+                  color: const Color.fromARGB(255, 109, 40, 217).withOpacity(0.3),
+                  width: 2,
+                ),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.3),
+                  blurRadius: 12,
+                  offset: const Offset(0, -4),
+                ),
+              ],
+            ),
+            child: NavigationBar(
+              backgroundColor: Colors.transparent,
+              indicatorColor: const Color.fromARGB(100, 109, 40, 217),
+              selectedIndex: index,
+              onDestinationSelected: (i) => setState(() => index = i),
+              labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+              height: 70,
+              destinations: [
+                NavigationDestination(
+                  icon: Icon(
+                    Icons.dashboard_outlined, 
+                    color: const Color.fromARGB(180, 255, 255, 255),
+                    size: 26,
+                  ),
+                  selectedIcon: const Icon(
+                    Icons.dashboard, 
+                    color: Color.fromARGB(255, 255, 215, 0),
+                    size: 26,
+                  ),
+                  label: 'Live',
+                ),
+                NavigationDestination(
+                  icon: Icon(
+                    Icons.history_outlined, 
+                    color: const Color.fromARGB(180, 255, 255, 255),
+                    size: 26,
+                  ),
+                  selectedIcon: const Icon(
+                    Icons.history, 
+                    color: Color.fromARGB(255, 255, 215, 0),
+                    size: 26,
+                  ),
+                  label: 'History',
+                ),
+                NavigationDestination(
+                  icon: Icon(
+                    Icons.bar_chart_outlined, 
+                    color: const Color.fromARGB(180, 255, 255, 255),
+                    size: 26,
+                  ),
+                  selectedIcon: const Icon(
+                    Icons.bar_chart, 
+                    color: Color.fromARGB(255, 255, 215, 0),
+                    size: 26,
+                  ),
+                  label: 'Charts',
+                ),
+                NavigationDestination(
+                  icon: Icon(
+                    Icons.tips_and_updates_outlined, 
+                    color: const Color.fromARGB(180, 255, 255, 255),
+                    size: 26,
+                  ),
+                  selectedIcon: const Icon(
+                    Icons.tips_and_updates, 
+                    color: Color.fromARGB(255, 255, 215, 0),
+                    size: 26,
+                  ),
+                  label: 'Tips',
+                ),
+              ],
+            ),
           ),
         ),
       ),
