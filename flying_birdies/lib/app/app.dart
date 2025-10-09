@@ -1,8 +1,7 @@
+import 'dart:ui' as ui; // for ui.ImageFilter.blur
 import 'package:flutter/material.dart';
 import 'theme.dart';
 
-// keep these as-is if your pubspec name is flying_birdies.
-// If you ever see “Target of URI doesn’t exist”, switch to relative imports.
 import 'package:flying_birdies/features/live/widgets/live_page.dart';
 import 'package:flying_birdies/features/history/widgets/history_page.dart';
 import 'package:flying_birdies/features/charts/widgets/charts_page.dart';
@@ -81,7 +80,7 @@ class _FlyingBirdiesAppState extends State<FlyingBirdiesApp> {
                   child: const Text(
                     'StrikePro',
                     style: TextStyle(
-                      fontSize: 24, // slightly smaller = less crowding
+                      fontSize: 24,
                       fontWeight: FontWeight.bold,
                       color: Colors.white,
                     ),
@@ -117,7 +116,7 @@ class _FlyingBirdiesAppState extends State<FlyingBirdiesApp> {
                         Pill(
                           label: 'Live Analytics',
                           icon: Icons.podcasts_outlined,
-                          selected: true, // always colored
+                          selected: true,
                           selectedGradient: const LinearGradient(
                             colors: [Color(0xFFFF6FD8), Color(0xFFF968A6)],
                             begin: Alignment.topLeft,
@@ -155,32 +154,69 @@ class _FlyingBirdiesAppState extends State<FlyingBirdiesApp> {
           // ── BODY ─────────────────────────────────────────────────────────────
           body: pages[index],
 
-          // ── BOTTOM NAV ───────────────────────────────────────────────────────
-          bottomNavigationBar: NavigationBar(
-            selectedIndex: index,
-            onDestinationSelected: (i) => setState(() => index = i),
-            destinations: const [
-              NavigationDestination(
-                icon: Icon(Icons.dashboard_outlined),
-                selectedIcon: Icon(Icons.dashboard),
-                label: 'Live',
+          // ── BLENDED GLASS BOTTOM NAV ────────────────────────────────────────
+          bottomNavigationBar: ClipRect(
+            child: BackdropFilter(
+              filter: ui.ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.10), // adjust 0.08–0.16
+                  border: const Border(
+                    top: BorderSide(color: Colors.white24),
+                  ),
+                ),
+                child: Theme(
+                  data: Theme.of(context).copyWith(
+                    navigationBarTheme: NavigationBarThemeData(
+                      backgroundColor: Colors.transparent,
+                      height: 64,
+                      indicatorColor: Colors.white.withOpacity(0.18),
+                      labelTextStyle: MaterialStateProperty.resolveWith(
+                        (states) => TextStyle(
+                          color: states.contains(MaterialState.selected)
+                              ? Colors.white
+                              : Colors.white70,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      iconTheme: MaterialStateProperty.resolveWith(
+                        (states) => IconThemeData(
+                          color: states.contains(MaterialState.selected)
+                              ? Colors.white
+                              : Colors.white70,
+                        ),
+                      ),
+                    ),
+                  ),
+                  child: NavigationBar(
+                    selectedIndex: index,
+                    onDestinationSelected: (i) => setState(() => index = i),
+                    destinations: const [
+                      NavigationDestination(
+                        icon: Icon(Icons.dashboard_outlined),
+                        selectedIcon: Icon(Icons.dashboard),
+                        label: 'Live',
+                      ),
+                      NavigationDestination(
+                        icon: Icon(Icons.history_outlined),
+                        selectedIcon: Icon(Icons.history),
+                        label: 'History',
+                      ),
+                      NavigationDestination(
+                        icon: Icon(Icons.bar_chart_outlined),
+                        selectedIcon: Icon(Icons.bar_chart),
+                        label: 'Charts',
+                      ),
+                      NavigationDestination(
+                        icon: Icon(Icons.tips_and_updates_outlined),
+                        selectedIcon: Icon(Icons.tips_and_updates),
+                        label: 'Tips',
+                      ),
+                    ],
+                  ),
+                ),
               ),
-              NavigationDestination(
-                icon: Icon(Icons.history_outlined),
-                selectedIcon: Icon(Icons.history),
-                label: 'History',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.bar_chart_outlined),
-                selectedIcon: Icon(Icons.bar_chart),
-                label: 'Charts',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.tips_and_updates_outlined),
-                selectedIcon: Icon(Icons.tips_and_updates),
-                label: 'Tips',
-              ),
-            ],
+            ),
           ),
         ),
       ),
