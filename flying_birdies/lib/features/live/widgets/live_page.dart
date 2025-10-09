@@ -1,220 +1,236 @@
-import 'dart:async';
+// lib/features/live/widgets/live_page.dart
 import 'package:flutter/material.dart';
+import 'package:flying_birdies/widgets/glass_widgets.dart';
 
-import 'package:flying_birdies/models/metrics.dart';
-import 'package:flying_birdies/services/mock_metrics.dart';
-import 'package:flying_birdies/widgets/metric_card.dart';
-
-
-class LivePage extends StatefulWidget {
+class LivePage extends StatelessWidget {
   const LivePage({super.key});
-  @override State<LivePage> createState() => _LivePageState();
-}
 
-class _LivePageState extends State<LivePage> {
-  bool running = false;
-  Metrics latest = Metrics.zero();
-  late final StreamSubscription sub;
-
-  @override
-  void initState() {
-    super.initState();
-    sub = MockMetricsService.instance.stream.listen((m) {
-      if (!running) return;
-      setState(() => latest = m);
-    });
-  }
-
-  @override
-  void dispose() {
-    sub.cancel();
-    super.dispose();
-  }
+  final TextStyle _tileText =
+      const TextStyle(fontSize: 13, color: Colors.white70);
+  final TextStyle _tileValue = const TextStyle(
+      fontSize: 22, fontWeight: FontWeight.w700, color: Colors.white);
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(children: [
-        Row(children: [
-          // Select Stroke Chip with better visibility
-          Container(
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [
-                  Color.fromARGB(200, 109, 40, 217),
-                  Color.fromARGB(200, 147, 51, 234),
-                ],
-              ),
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(
-                color: Colors.white.withOpacity(0.3),
-                width: 1.5,
-              ),
-            ),
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                borderRadius: BorderRadius.circular(24),
-                onTap: () {
-                  // Add your select stroke logic here
-                },
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.sports_tennis,
+    return SafeArea(
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+        children: [
+          // Smart Racket Sensor card
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: GlassCard(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(children: const [
+                    Icon(Icons.bluetooth, size: 24, color: Colors.white),
+                    SizedBox(width: 10),
+                    Text(
+                      'Smart Racket Sensor',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
                         color: Colors.white,
-                        size: 18,
                       ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Select Stroke',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 14,
+                    ),
+                  ]),
+                  const SizedBox(height: 10),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: const [
+                      StatusDot(color: Color(0xFFFF6B6B)),
+                      SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          'No Device Found · Make sure your sensor is on',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          softWrap: true,
+                          style: TextStyle(color: Colors.white70),
                         ),
                       ),
                     ],
                   ),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          
-          // Status Chip with dynamic color
-          Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: running
-                    ? [
-                        const Color.fromARGB(200, 16, 185, 129),
-                        const Color.fromARGB(200, 52, 211, 153),
-                      ]
-                    : [
-                        const Color.fromARGB(150, 100, 116, 139),
-                        const Color.fromARGB(150, 148, 163, 184),
-                      ],
-              ),
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(
-                color: Colors.white.withOpacity(0.3),
-                width: 1.5,
-              ),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: running 
-                          ? const Color.fromARGB(255, 0, 255, 127)
-                          : Colors.white70,
-                      shape: BoxShape.circle,
-                      boxShadow: running
-                          ? [
-                              BoxShadow(
-                                color: const Color.fromARGB(255, 0, 255, 127),
-                                blurRadius: 8,
-                                spreadRadius: 2,
-                              ),
-                            ]
-                          : null,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    running ? 'Live' : 'Idle',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 14,
-                    ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      const AppBadge(
+                          text: 'DISCONNECTED', color: Color(0xFF422A66)),
+                      const Spacer(),
+                      Flexible(
+                        child: FilledButton.tonal(
+                          style: ButtonStyle(
+                            padding: WidgetStateProperty.all(
+                              const EdgeInsets.symmetric(
+                                  vertical: 14, horizontal: 18),
+                            ),
+                            backgroundColor: WidgetStateProperty.all(
+                                const Color(0xFF7E4AED)),
+                            foregroundColor:
+                                WidgetStateProperty.all(Colors.white),
+                            shape: WidgetStateProperty.all(
+                              RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(24)),
+                            ),
+                          ),
+                          onPressed: () {},
+                          child: const Text('Connect'),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
             ),
           ),
-        ]),
-        const SizedBox(height: 16),
-        Expanded(
-          child: GridView.count(
-            crossAxisCount: 2, crossAxisSpacing: 12, mainAxisSpacing: 12,
+
+          const SizedBox(height: 16),
+
+          // Beginner-friendly metrics
+          GridView.count(
+            crossAxisCount: 2,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            mainAxisSpacing: 12,
+            crossAxisSpacing: 12,
+            childAspectRatio: 1.2,
             children: [
-              MetricCard(label: 'Impact Force', value: '${latest.forceN.toStringAsFixed(1)} N'),
-              MetricCard(label: 'Racket Speed', value: '${latest.speedMs.toStringAsFixed(2)} m/s'),
-              MetricCard(label: 'Acceleration', value: '${latest.accelMs2.toStringAsFixed(1)} m/s²'),
-              MetricCard(label: 'Session', value: running ? 'Live' : 'Idle'),
+              MetricTile(
+                  title: 'Session Time',
+                  value: '00:00',
+                  valueStyle: _tileValue,
+                  titleStyle: _tileText),
+              MetricTile(
+                  title: 'Stroke Count',
+                  value: '0',
+                  valueStyle: _tileValue,
+                  titleStyle: _tileText),
+              MetricTile(
+                  title: 'Solid Contact %',
+                  value: '0%',
+                  valueStyle: _tileValue,
+                  titleStyle: _tileText),
+              MetricTile(
+                  title: 'Consistency',
+                  value: '—',
+                  valueStyle: _tileValue,
+                  titleStyle: _tileText),
             ],
           ),
-        ),
-        const SizedBox(height: 16),
-        
-        // Enhanced Start/Stop Button
-        Container(
-          width: double.infinity,
-          height: 56,
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: running
-                  ? [
-                      const Color.fromARGB(255, 239, 68, 68),
-                      const Color.fromARGB(255, 220, 38, 38),
-                    ]
-                  : [
-                      const Color.fromARGB(255, 109, 40, 217),
-                      const Color.fromARGB(255, 147, 51, 234),
-                    ],
-            ),
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: running
-                    ? const Color.fromARGB(100, 239, 68, 68)
-                    : const Color.fromARGB(100, 109, 40, 217),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(16),
-              onTap: () => setState(() => running = !running),
-              child: Center(
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      running ? Icons.stop_circle : Icons.play_circle,
-                      color: Colors.white,
-                      size: 24,
-                    ),
-                    const SizedBox(width: 12),
-                    Text(
-                      running ? 'Stop Session' : 'Start Session',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+
+          const SizedBox(height: 16),
+
+          // Practice Focus
+          GlassCard(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: const [
+                    Icon(Icons.track_changes_outlined, color: Colors.white),
+                    SizedBox(width: 8),
+                    Text('Practice Focus',
+                        style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white)),
+                    SizedBox(width: 8),
+                    AppBadge(text: 'Optional', color: Color(0xFF2B2D4A)),
                   ],
                 ),
-              ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Select a stroke to focus your practice session (optional)',
+                  style: TextStyle(color: Colors.white70),
+                ),
+                const SizedBox(height: 8),
+                buildFocusTile('Smash', 'Powerful overhead attack shot'),
+                buildFocusTile('Drop Shot', 'Soft shot just over the net'),
+                buildFocusTile('Clear', 'Deep defensive shot to baseline'),
+              ],
             ),
           ),
-        ),
-      ]),
+
+          const SizedBox(height: 18),
+
+          // Start session
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              style: ButtonStyle(
+                padding: WidgetStateProperty.all(
+                    const EdgeInsets.symmetric(vertical: 16)),
+                backgroundColor:
+                    WidgetStateProperty.all(const Color(0xFF7E4AED)),
+                foregroundColor: WidgetStateProperty.all(Colors.white),
+                shape: WidgetStateProperty.all(
+                  RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+              ),
+              onPressed: () {},
+              child: const Text('Start Session',
+                  style:
+                      TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+            ),
+          ),
+        ],
+      ),
     );
   }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+class MetricTile extends StatelessWidget {
+  const MetricTile({
+    super.key,
+    required this.title,
+    required this.value,
+    required this.valueStyle,
+    required this.titleStyle,
+  });
+
+  final String title;
+  final String value;
+  final TextStyle valueStyle;
+  final TextStyle titleStyle;
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassCard(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: titleStyle),
+          const Spacer(),
+          Text(value, style: valueStyle),
+        ],
+      ),
+    );
+  }
+}
+
+Widget buildFocusTile(String title, String subtitle) {
+  return Padding(
+    padding: const EdgeInsets.only(top: 8),
+    child: GlassCard(
+      child: ListTile(
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        leading: const Icon(Icons.sports_tennis, color: Colors.white),
+        title: Text(title,
+            style:
+                const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+        subtitle: Text(subtitle,
+            style: const TextStyle(color: Colors.white70)),
+        trailing: const Icon(Icons.chevron_right, color: Colors.white),
+      ),
+    ),
+  );
 }
