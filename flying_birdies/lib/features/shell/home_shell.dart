@@ -61,7 +61,7 @@ class _HomeShellState extends State<HomeShell> {
           const ProgressTab(),
           StatsTab(),
           const _PlaceholderTab(label: 'Stats / Goals'),
-          const _PlaceholderTab(label: 'Awards'),
+          const _PlaceholderTab(label: 'Feedback'),
         ],
           ),
         ),
