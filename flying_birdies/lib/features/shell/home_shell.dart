@@ -1,12 +1,15 @@
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
-
 import '../../app/theme.dart';
 import '../../widgets/glass_widgets.dart';
-import 'connect_sheet.dart'; // exports BleDevice + showConnectSheet
-import '../Train/Train_tab.dart';
-import '../progress/progress_tab.dart';
+
+import '../Train/train_tab.dart';
+import '../history/history_tab.dart';
 import '../stats/stats_tab.dart';
+import '../feedback/feedback_tab.dart';
+
+import 'connect_sheet.dart'; // BleDevice + showConnectSheet()
+
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
   @override
@@ -14,12 +17,11 @@ class HomeShell extends StatefulWidget {
 }
 
 class _HomeShellState extends State<HomeShell> {
-  int _index = 0; // 0: Home, 1: Train, 2: Progress, 3: Stats, 4: Awards
+  int _index = 0;
 
   bool _isConnected = false;
   BleDevice? _device;
 
-  // Opens the connect popup and captures the result
   Future<void> _openConnectSheet() async {
     final result = await showConnectSheet(context);
     if (result != null) {
@@ -30,14 +32,19 @@ class _HomeShellState extends State<HomeShell> {
     }
   }
 
-  // Primary CTA on the hero card:
-  // if connected → go to Train tab; else → open Connect sheet
   void _handlePrimaryCta() {
     if (_isConnected) {
-      setState(() => _index = 1); // Train tab
+      setState(() => _index = 1); // Train
     } else {
       _openConnectSheet();
     }
+  }
+
+  void _goToHistory() => setState(() => _index = 2);
+
+  void _openProfile() {
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('Profile coming soon')));
   }
 
   @override
@@ -45,28 +52,26 @@ class _HomeShellState extends State<HomeShell> {
     return GradientBackground(
       child: Scaffold(
         backgroundColor: Colors.transparent,
-
         body: SafeArea(
           bottom: false,
           child: IndexedStack(
             index: _index,
-        children: [
-          _HomeTab(
-            isConnected: _isConnected,
-            deviceName: _device?.name,
-            onOpenConnect: _openConnectSheet,
-            onPrimaryCta: _handlePrimaryCta,
-          ),
-          TrainTab(deviceName: _device?.name), // ← NEW
-          const ProgressTab(),
-          StatsTab(),
-          const _PlaceholderTab(label: 'Stats / Goals'),
-          const _PlaceholderTab(label: 'Feedback'),
-        ],
+            children: [
+              _HomeTab(
+                isConnected: _isConnected,
+                deviceName: _device?.name,
+                onOpenConnect: _openConnectSheet,
+                onPrimaryCta: _handlePrimaryCta,
+                onGoToHistory: _goToHistory,
+                onOpenProfile: _openProfile,
+              ),
+              TrainTab(deviceName: _device?.name),
+              const HistoryTab(),
+              StatsTab(),
+              const FeedbackTab(), // real feedback screen
+            ],
           ),
         ),
-
-        // GLASS BOTTOM NAV
         bottomNavigationBar: ClipRRect(
           borderRadius: const BorderRadius.only(
             topLeft: Radius.circular(18),
@@ -76,7 +81,7 @@ class _HomeShellState extends State<HomeShell> {
             filter: ui.ImageFilter.blur(sigmaX: 14, sigmaY: 14),
             child: Container(
               decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.18),
+                color: Colors.black.withValues(alpha: .18),
                 border: Border(
                   top: BorderSide(color: Colors.white.withValues(alpha: .10)),
                 ),
@@ -86,7 +91,7 @@ class _HomeShellState extends State<HomeShell> {
                   navigationBarTheme: NavigationBarThemeData(
                     height: 56,
                     backgroundColor: Colors.transparent,
-                    indicatorColor: Colors.white.withOpacity(.16),
+                    indicatorColor: Colors.white.withValues(alpha: .16),
                     labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
                     iconTheme: WidgetStateProperty.resolveWith((s) {
                       final sel = s.contains(WidgetState.selected);
@@ -120,9 +125,9 @@ class _HomeShellState extends State<HomeShell> {
                       label: 'Train',
                     ),
                     NavigationDestination(
-                      icon: Icon(Icons.trending_up_outlined),
-                      selectedIcon: Icon(Icons.trending_up_rounded),
-                      label: 'Progress',
+                      icon: Icon(Icons.calendar_month_outlined),
+                      selectedIcon: Icon(Icons.calendar_month_rounded),
+                      label: 'History',
                     ),
                     NavigationDestination(
                       icon: Icon(Icons.bar_chart_outlined),
@@ -130,9 +135,9 @@ class _HomeShellState extends State<HomeShell> {
                       label: 'Stats',
                     ),
                     NavigationDestination(
-                      icon: Icon(Icons.emoji_events_outlined),
-                      selectedIcon: Icon(Icons.emoji_events_rounded),
-                      label: 'Awards',
+                      icon: Icon(Icons.chat_bubble_outline_rounded),
+                      selectedIcon: Icon(Icons.chat_bubble_rounded),
+                      label: 'Feedback',
                     ),
                   ],
                 ),
@@ -145,17 +150,22 @@ class _HomeShellState extends State<HomeShell> {
   }
 }
 
-/// HOME tab – dynamic header & CTA
+/* HOME tab widget (private) */
+
 class _HomeTab extends StatelessWidget {
   const _HomeTab({
     required this.onOpenConnect,
     required this.onPrimaryCta,
+    required this.onGoToHistory,
+    required this.onOpenProfile,
     required this.isConnected,
     this.deviceName,
   });
 
-  final VoidCallback onOpenConnect; // Bluetooth chip action
-  final VoidCallback onPrimaryCta;  // Hero CTA action
+  final VoidCallback onOpenConnect;
+  final VoidCallback onPrimaryCta;
+  final VoidCallback onGoToHistory;
+  final VoidCallback onOpenProfile;
   final bool isConnected;
   final String? deviceName;
 
@@ -164,23 +174,19 @@ class _HomeTab extends StatelessWidget {
     final subtitle = isConnected
         ? 'Connected to ${deviceName ?? 'your sensor'}'
         : 'Connect your sensor to start training';
-
     final ctaText = isConnected ? 'Start Training' : 'Connect Sensor';
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
       children: [
-        // Header row
         Row(
           children: [
             Container(
-              width: 32,
-              height: 32,
+              width: 32, height: 32,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(10),
                 gradient: const LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
+                  begin: Alignment.topLeft, end: Alignment.bottomRight,
                   colors: [Color(0xFFFF6FD8), Color(0xFF7E4AED)],
                 ),
               ),
@@ -198,7 +204,7 @@ class _HomeTab extends StatelessWidget {
             const Spacer(),
             _IconChip(icon: Icons.bluetooth, onTap: onOpenConnect),
             const SizedBox(width: 8),
-            const _IconChip(icon: Icons.person_outline),
+            _IconChip(icon: Icons.person_outline, onTap: onOpenProfile),
           ],
         ),
         const SizedBox(height: 12),
@@ -206,11 +212,7 @@ class _HomeTab extends StatelessWidget {
         const Text(
           'Welcome back! 👋',
           style: TextStyle(
-            color: Colors.white,
-            fontSize: 26,
-            fontWeight: FontWeight.w800,
-            height: 1.15,
-          ),
+            color: Colors.white, fontSize: 26, fontWeight: FontWeight.w800, height: 1.15),
         ),
         const SizedBox(height: 4),
         Text(
@@ -223,21 +225,18 @@ class _HomeTab extends StatelessWidget {
         ),
         const SizedBox(height: 14),
 
-        // Hero card
         Container(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(18),
             gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
+              begin: Alignment.topLeft, end: Alignment.bottomRight,
               colors: [Color(0x332F1A77), Color(0x333560A8)],
             ),
             border: Border.all(color: Colors.white.withValues(alpha: .10)),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: .25),
-                blurRadius: 20,
-                offset: const Offset(0, 10),
+                blurRadius: 20, offset: const Offset(0, 10),
               ),
             ],
           ),
@@ -247,20 +246,17 @@ class _HomeTab extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Container(
-                  width: 84,
-                  height: 84,
+                  width: 84, height: 84,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(24),
                     gradient: const LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
+                      begin: Alignment.topLeft, end: Alignment.bottomRight,
                       colors: [Color(0xFFCF67FF), Color(0xFF78C4FF)],
                     ),
                   ),
                   child: Icon(
                     isConnected ? Icons.sports_tennis_rounded : Icons.monitor_heart,
-                    color: Colors.white.withValues(alpha: .88),
-                    size: 40,
+                    color: Colors.white.withValues(alpha: .88), size: 40,
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -268,7 +264,7 @@ class _HomeTab extends StatelessWidget {
                   isConnected ? 'All Set' : 'Start Your Journey',
                   textAlign: TextAlign.center,
                   style: const TextStyle(
-                    color: Colors.white, fontSize: 22, fontWeight: FontWeight.w800),
+                      color: Colors.white, fontSize: 22, fontWeight: FontWeight.w800),
                 ),
                 const SizedBox(height: 10),
                 Text(
@@ -278,13 +274,10 @@ class _HomeTab extends StatelessWidget {
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: .80),
-                    fontSize: 14,
-                    height: 1.45,
+                    fontSize: 14, height: 1.45,
                   ),
                 ),
                 const SizedBox(height: 14),
-
-                // Primary CTA (now correctly routed)
                 BounceTap(
                   onTap: onPrimaryCta,
                   child: Container(
@@ -295,8 +288,7 @@ class _HomeTab extends StatelessWidget {
                       boxShadow: [
                         BoxShadow(
                           color: Colors.black.withValues(alpha: .30),
-                          blurRadius: 14,
-                          offset: const Offset(0, 8),
+                          blurRadius: 14, offset: const Offset(0, 8),
                         ),
                       ],
                     ),
@@ -311,19 +303,17 @@ class _HomeTab extends StatelessWidget {
           ),
         ),
 
-        // Your Week snapshot
         const SizedBox(height: 16),
         Container(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(18),
-            color: Colors.black.withOpacity(0.15),
-            border: Border.all(color: Colors.white.withOpacity(.08)),
+            color: Colors.black.withValues(alpha: 0.15),
+            border: Border.all(color: Colors.white.withValues(alpha: .08)),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(.25),
-                blurRadius: 20,
-                offset: const Offset(0, 10),
+                color: Colors.black.withValues(alpha: .25),
+                blurRadius: 20, offset: const Offset(0, 10),
               ),
             ],
           ),
@@ -335,7 +325,7 @@ class _HomeTab extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(.12),
+                      color: Colors.white.withValues(alpha: .12),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: const Icon(Icons.auto_graph_rounded, size: 16, color: Colors.white),
@@ -344,7 +334,29 @@ class _HomeTab extends StatelessWidget {
                   const Text(
                     'Your Week',
                     style: TextStyle(
-                      color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16),
+                        color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16),
+                  ),
+                  const Spacer(),
+                  BounceTap(
+                    onTap: onGoToHistory,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: .10),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.white.withValues(alpha: .12)),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text('Open History',
+                              style: TextStyle(
+                                  color: Colors.white, fontWeight: FontWeight.w700)),
+                          SizedBox(width: 6),
+                          Icon(Icons.chevron_right, size: 16, color: Colors.white),
+                        ],
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -401,35 +413,14 @@ class _StatTile extends StatelessWidget {
         Text(
           value,
           style: const TextStyle(
-            color: Colors.white,
-            fontSize: 16,
-            fontWeight: FontWeight.w700,
-          ),
+            color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: 4),
         Text(
           label,
-          style: TextStyle(
-            color: Colors.white.withOpacity(0.7),
-            fontSize: 13,
-          ),
+          style: TextStyle(color: Colors.white.withValues(alpha: .70), fontSize: 13),
         ),
       ],
-    );
-  }
-}
-
-class _PlaceholderTab extends StatelessWidget {
-  const _PlaceholderTab({required this.label});
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Text(
-        '$label – replace with your page',
-        style: const TextStyle(color: Colors.white70, fontSize: 16),
-      ),
     );
   }
 }
