@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 import '../../widgets/glass_widgets.dart';
 import '../../app/theme.dart';
 import '../shell/home_shell.dart';
@@ -12,9 +14,9 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final _email = TextEditingController();
-  final _name  = TextEditingController();
-  final _pw    = TextEditingController();
-  final _pw2   = TextEditingController();
+  final _name = TextEditingController();
+  final _pw = TextEditingController();
+  final _pw2 = TextEditingController();
 
   bool _isSignup = false;
   bool _obscure = true;
@@ -23,21 +25,43 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   void dispose() {
-    _email.dispose(); _name.dispose(); _pw.dispose(); _pw2.dispose();
+    _email.dispose();
+    _name.dispose();
+    _pw.dispose();
+    _pw2.dispose();
     super.dispose();
   }
 
+  Future<void> _saveProfile({String? name, String? email}) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (name != null && name.isNotEmpty) {
+      await prefs.setString('player_name', name);
+    }
+    if (email != null && email.isNotEmpty) {
+      await prefs.setString('player_email', email);
+    }
+  }
+
   Future<void> _submit() async {
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       if (_isSignup) {
-        if (_pw.text.length < 6) { _error = 'Min 6 characters'; }
-        else if (_pw.text != _pw2.text) { _error = 'Passwords do not match'; }
-        else {
+        if (_pw.text.length < 6) {
+          _error = 'Min 6 characters';
+        } else if (_pw.text != _pw2.text) {
+          _error = 'Passwords do not match';
+        } else {
           await LocalAuth.instance.signUp(
             email: _email.text,
             displayName: _name.text.isEmpty ? 'Player' : _name.text,
             password: _pw.text,
+          );
+          await _saveProfile(
+            name: _name.text,
+            email: _email.text,
           );
           _goHome();
         }
@@ -46,23 +70,39 @@ class _LoginScreenState extends State<LoginScreen> {
           email: _email.text,
           password: _pw.text,
         );
-        if (ok) _goHome(); else _error = 'Invalid email or password';
+        if (ok) {
+          // name might already be stored from sign-up; we at least update email
+          await _saveProfile(email: _email.text);
+          _goHome();
+        } else {
+          _error = 'Invalid email or password';
+        }
       }
     } catch (_) {
       _error = 'Something went wrong';
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
   }
 
   void _goHome() {
-    Navigator.of(context)
-        .pushReplacement(MaterialPageRoute(builder: (_) => const HomeShell()));
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const HomeShell()),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final title = _isSignup ? 'Create account' : 'Sign in';
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    final titleColor = isDark ? Colors.white : const Color(0xFF111827);
+    final secondary =
+        isDark ? Colors.white.withValues(alpha: .95) : const Color(0xFF4B5563);
+
+    final pageTitle = _isSignup ? 'Create account' : 'Sign in';
 
     return GradientBackground(
       child: Scaffold(
@@ -75,7 +115,6 @@ class _LoginScreenState extends State<LoginScreen> {
                 padding: const EdgeInsets.fromLTRB(20, 36, 20, 24),
                 children: [
                   const SizedBox(height: 8),
-                  // Logo / App title
                   Center(
                     child: ShaderMask(
                       shaderCallback: (r) =>
@@ -94,16 +133,15 @@ class _LoginScreenState extends State<LoginScreen> {
                   const SizedBox(height: 16),
                   Center(
                     child: Text(
-                      title,
-                      style: const TextStyle(
-                        color: Colors.white,
+                      pageTitle,
+                      style: TextStyle(
+                        color: titleColor,
                         fontWeight: FontWeight.w800,
                         fontSize: 22,
                       ),
                     ),
                   ),
                   const SizedBox(height: 18),
-
                   GlassCard(
                     padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
                     child: Column(
@@ -111,25 +149,27 @@ class _LoginScreenState extends State<LoginScreen> {
                         TextField(
                           controller: _email,
                           keyboardType: TextInputType.emailAddress,
-                          decoration: _input('Email'),
+                          decoration: _input(context, 'Email'),
                         ),
                         const SizedBox(height: 12),
                         if (_isSignup) ...[
                           TextField(
                             controller: _name,
                             textCapitalization: TextCapitalization.words,
-                            decoration: _input('Display name'),
+                            decoration: _input(context, 'Display name'),
                           ),
                           const SizedBox(height: 12),
                         ],
                         TextField(
                           controller: _pw,
                           obscureText: _obscure,
-                          decoration: _input('Password').copyWith(
+                          decoration: _input(context, 'Password').copyWith(
                             suffixIcon: IconButton(
                               icon: Icon(
-                                _obscure ? Icons.visibility : Icons.visibility_off,
-                                color: Colors.white.withValues(alpha: .85),
+                                _obscure
+                                    ? Icons.visibility
+                                    : Icons.visibility_off,
+                                color: secondary,
                               ),
                               onPressed: () =>
                                   setState(() => _obscure = !_obscure),
@@ -141,7 +181,8 @@ class _LoginScreenState extends State<LoginScreen> {
                           TextField(
                             controller: _pw2,
                             obscureText: true,
-                            decoration: _input('Confirm password'),
+                            decoration:
+                                _input(context, 'Confirm password'),
                           ),
                         ],
                         const SizedBox(height: 10),
@@ -150,7 +191,9 @@ class _LoginScreenState extends State<LoginScreen> {
                             alignment: Alignment.centerLeft,
                             child: Text(
                               _error!,
-                              style: const TextStyle(color: Color(0xFFFFB4B4)),
+                              style: TextStyle(
+                                color: theme.colorScheme.error,
+                              ),
                             ),
                           ),
                         const SizedBox(height: 10),
@@ -158,18 +201,12 @@ class _LoginScreenState extends State<LoginScreen> {
                           width: double.infinity,
                           child: ElevatedButton(
                             onPressed: _loading ? null : _submit,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.white.withValues(alpha: .14),
-                              foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                            ),
                             child: Text(
                               _isSignup ? 'Create account' : 'Sign in',
                               style: const TextStyle(
-                                  fontWeight: FontWeight.w800, fontSize: 16),
+                                fontWeight: FontWeight.w800,
+                                fontSize: 16,
+                              ),
                             ),
                           ),
                         ),
@@ -178,13 +215,15 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 16),
                   TextButton(
-                    onPressed: _loading ? null : () => setState(() => _isSignup = !_isSignup),
+                    onPressed: _loading
+                        ? null
+                        : () => setState(() => _isSignup = !_isSignup),
                     child: Text(
                       _isSignup
                           ? 'Have an account? Sign in'
                           : 'New here? Create an account',
                       style: TextStyle(
-                        color: Colors.white.withValues(alpha: .95),
+                        color: secondary,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -198,22 +237,18 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  InputDecoration _input(String label) => InputDecoration(
-        labelText: label,
-        labelStyle: TextStyle(color: Colors.white.withValues(alpha: .75)),
-        filled: true,
-        fillColor: Colors.white.withValues(alpha: .06),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: Colors.white.withValues(alpha: .15)),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: Colors.white.withValues(alpha: .12)),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: Colors.white.withValues(alpha: .35)),
-        ),
-      );
+  InputDecoration _input(BuildContext context, String label) {
+    final base = Theme.of(context).inputDecorationTheme;
+    return InputDecoration(
+      labelText: label,
+      labelStyle: base.labelStyle,
+      filled: base.filled,
+      fillColor: base.fillColor,
+      contentPadding: base.contentPadding,
+      enabledBorder: base.enabledBorder,
+      focusedBorder: base.focusedBorder,
+      border: base.border,
+      hintStyle: base.hintStyle,
+    );
+  }
 }

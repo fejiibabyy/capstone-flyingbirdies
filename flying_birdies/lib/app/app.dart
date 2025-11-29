@@ -10,7 +10,9 @@ class FlyingBirdiesApp extends StatelessWidget {
     return MaterialApp(
       title: 'Flying Birdies',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.build(),
+      theme: AppTheme.light(),
+      darkTheme: AppTheme.dark(),
+      themeMode: ThemeMode.system,
       home: const WelcomeScreen(),
     );
   }
