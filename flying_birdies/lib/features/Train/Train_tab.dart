@@ -1,4 +1,3 @@
-// lib/features/Train/train_tab.dart
 import 'package:flutter/material.dart';
 
 import '../../app/theme.dart'; // for gradient colors etc.
@@ -190,6 +189,14 @@ class _TrainTabState extends State<TrainTab> {
         ),
         const SizedBox(height: 10),
 
+        // Start / End button moved up, directly under the heading.
+        _PrimaryButton(
+          label: _sessionActive ? 'End session' : 'Start session',
+          onTap: _onToggleSession,
+        ),
+
+        const SizedBox(height: 12),
+
         _LiveSensorHeroCard(
           isActive: _sessionActive,
           selectedStroke: _selectedKey != null ? _currentStroke.title : null,
@@ -223,14 +230,6 @@ class _TrainTabState extends State<TrainTab> {
               unit: 'au',
             ),
           ],
-        ),
-
-        const SizedBox(height: 24),
-
-        // Start / End session button
-        _PrimaryButton(
-          label: _sessionActive ? 'End session' : 'Start session',
-          onTap: _onToggleSession,
         ),
 
         const SizedBox(height: 40),
@@ -412,7 +411,7 @@ class _LiveSensorHeroCard extends StatelessWidget {
         : 'Recording hits for ${selectedStroke ?? 'your stroke'}.\nMetrics update on each registered shot.';
 
     return Container(
-      height: 150,
+      height: 140, // bumped up so text doesn’t overflow
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(20),
         gradient: const LinearGradient(
@@ -461,6 +460,8 @@ class _LiveSensorHeroCard extends StatelessWidget {
                   const SizedBox(height: 6),
                   Text(
                     statusSubtitle,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: Colors.white.withOpacity(.88),
                       height: 1.35,
@@ -512,7 +513,7 @@ class _ShotCountPill extends StatelessWidget {
             style: TextStyle(
               color: textColor,
               fontWeight: FontWeight.w800,
-              fontSize: 16, // bigger number
+              fontSize: 16,
             ),
           ),
           const SizedBox(width: 4),

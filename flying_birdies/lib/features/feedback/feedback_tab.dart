@@ -1,4 +1,5 @@
-// lib/features/feedback/feedback_tab.dart
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -7,6 +8,15 @@ import '../history/history_tab.dart' show SessionSummary;
 
 /// Comparison choices for the dropdown.
 enum BaselineMode { previous, avg7d, avg30d, baseline }
+
+/// Which metric we’re graphing in the session graph.
+enum GraphMetric { swingSpeed, swingForce, acceleration, impactForce }
+
+// --- Coach summary thresholds (easy to tweak) ---
+const double kStrongAvgSpeed = 240; // km/h
+const double kStrongMaxSpeed = 290; // km/h
+const double kStrongImpact = 55; // N-ish
+const double kStrongAccel = 55; // m/s²-ish
 
 class FeedbackTab extends StatefulWidget {
   const FeedbackTab({
@@ -37,6 +47,9 @@ class _FeedbackTabState extends State<FeedbackTab> {
   bool _triedAuto = false;
 
   BaselineMode _mode = BaselineMode.previous;
+
+  // Which metric’s graph is shown.
+  GraphMetric _graphMetric = GraphMetric.swingSpeed;
 
   @override
   void initState() {
@@ -74,10 +87,10 @@ class _FeedbackTabState extends State<FeedbackTab> {
       date: DateTime(now.year, now.month, now.day),
       title: 'Evening Drill',
       avgSpeedKmh: 245,
-      maxSpeedKmh: 295,
-      sweetSpotPct: .60, // TEMP: reused as avg impact force
-      consistencyPct: .70, // TEMP: reused as avg acceleration
-      hits: 380,
+      maxSpeedKmh: 302,
+      sweetSpotPct: .58, // TEMP: reused as avg impact force
+      consistencyPct: .72, // TEMP: reused as avg acceleration
+      hits: 420,
     );
   }
 
@@ -177,7 +190,6 @@ class _FeedbackTabState extends State<FeedbackTab> {
                   textColor: primaryText,
                   secondary: secondaryText,
                 ),
-
               if (has) ...[
                 // Coach Summary
                 _CoachSummaryCard(
@@ -187,9 +199,24 @@ class _FeedbackTabState extends State<FeedbackTab> {
                   secondaryText: secondaryText,
                   lines: _coachLines(_current!, _comparisonTarget()),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 16),
 
-                // Metrics grid – 4 metrics (no sweet-spot/consistency labels)
+                // Session graphs – directly after coach summary.
+                _GraphSection(
+                  session: _current!,
+                  metric: _graphMetric,
+                  onMetricChanged: (m) {
+                    setState(() => _graphMetric = m);
+                  },
+                  cardBg: cardBg,
+                  border: cardBorder,
+                  primaryText: primaryText,
+                  secondaryText: secondaryText,
+                  isDark: isDark,
+                ),
+                const SizedBox(height: 16),
+
+                // Metrics grid – 4 metrics with Avg + Max inside.
                 _MetricGrid(
                   s: _current!,
                   cardBg: cardBg,
@@ -197,7 +224,7 @@ class _FeedbackTabState extends State<FeedbackTab> {
                   primaryText: primaryText,
                   secondaryText: secondaryText,
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 16),
 
                 // Hits
                 _HitsCard(
@@ -303,78 +330,75 @@ class _FeedbackTabState extends State<FeedbackTab> {
 
   /* ---------- logic helpers ---------- */
 
-   List<String> _coachLines(SessionSummary cur, SessionSummary? other) {
-  // Treat the extra fields as your two physical metrics.
-  // (You’re already labelling them as Impact + Acceleration in the UI.)
-  final double avg = cur.avgSpeedKmh;
-  final double max = cur.maxSpeedKmh;
-  final double impact = cur.sweetSpotPct * 100;      // map to N-ish scale
-  final double accel = cur.consistencyPct * 100;     // map to m/s²-ish scale
-  final int hits = cur.hits;
+  List<String> _coachLines(SessionSummary cur, SessionSummary? other) {
+    final double avg = cur.avgSpeedKmh;
+    final double max = cur.maxSpeedKmh;
+    final double impactAvg = cur.sweetSpotPct * 100;
+    final double accelAvg = cur.consistencyPct * 100;
+    final int hits = cur.hits;
 
-  final bool hasOther = other != null;
+    final bool hasOther = other != null;
 
-  // Deltas vs comparison target (if any)
-  final double dAvg   = hasOther ? avg    - other!.avgSpeedKmh           : 0.0;
-  final double dMax   = hasOther ? max    - other!.maxSpeedKmh           : 0.0;
-  final double dImp   = hasOther ? impact - other!.sweetSpotPct * 100    : 0.0;
-  final double dAccel = hasOther ? accel  - other!.consistencyPct * 100  : 0.0;
-  final int    dHits  = hasOther ? hits   - other!.hits                  : 0;
+    final double dAvg = hasOther ? avg - other!.avgSpeedKmh : 0.0;
+    final double dMax = hasOther ? max - other!.maxSpeedKmh : 0.0;
+    final double dImp =
+        hasOther ? impactAvg - other!.sweetSpotPct * 100 : 0.0;
+    final double dAccel =
+        hasOther ? accelAvg - other!.consistencyPct * 100 : 0.0;
+    final int dHits = hasOther ? hits - other!.hits : 0;
 
-  String headline;
+    String headline;
 
-  if (!hasOther) {
-    // No comparison session: judge this one on its own.
-    if (avg >= 240 && max >= 290 && impact >= 55 && accel >= 55) {
-      headline = 'Strong all-round session — fast swings with solid impact.';
-    } else if (impact < 45) {
-      headline = 'Work on cleaner, stronger contact on the shuttle.';
-    } else if (accel < 45) {
-      headline = 'Good contact — now focus on quicker acceleration into the shot.';
-    } else if (avg < 200 && max < 260) {
-      headline =
-          'Controlled pace today — next time, try adding a bit more racket speed.';
+    if (!hasOther) {
+      if (avg >= kStrongAvgSpeed &&
+          max >= kStrongMaxSpeed &&
+          impactAvg >= kStrongImpact &&
+          accelAvg >= kStrongAccel) {
+        headline = 'Strong all-round session — fast swings with solid impact.';
+      } else if (impactAvg < 45) {
+        headline = 'Work on cleaner, stronger contact on the shuttle.';
+      } else if (accelAvg < 45) {
+        headline =
+            'Good contact — now focus on quicker acceleration into the shot.';
+      } else if (avg < 200 && max < 260) {
+        headline =
+            'Controlled pace today — next time, try adding a bit more racket speed.';
+      } else {
+        headline = 'Solid session — you’re building a stable baseline.';
+      }
     } else {
-      headline = 'Solid session — you’re building a stable baseline.';
-    }
-  } else {
-    // We *do* have a comparison target.
-    final bool speedUp   = dAvg > 3 && dMax > 5;
-    final bool impactUp  = dImp > 3;
-    final bool accelUp   = dAccel > 3;
-    final bool volumeUp  = dHits > 20;
+      final bool speedUp = dAvg > 3 && dMax > 5;
+      final bool impactUp = dImp > 3;
+      final bool accelUp = dAccel > 3;
+      final bool volumeUp = dHits > 20;
 
-    if (speedUp && impactUp && accelUp) {
-      headline =
-          'Great work — speed, impact, and acceleration all improved.';
-    } else if (speedUp && impactUp) {
-      headline = 'Swings are faster with stronger impact — nice progress.';
-    } else if (speedUp && !impactUp) {
-      headline =
-          'Speed is up — keep the same strong contact as you swing faster.';
-    } else if (impactUp && !speedUp) {
-      headline =
-          'Impact is stronger even at similar speed — that’s efficient contact.';
-    } else if (accelUp && !speedUp) {
-      headline =
-          'Acceleration improved — you’re getting into the shot more explosively.';
-    } else if (volumeUp) {
-      headline = 'Big jump in reps — you got a lot more hits this session.';
-    } else {
-      headline = 'Very similar to your last session — good consistency overall.';
+      if (speedUp && impactUp && accelUp) {
+        headline =
+            'Great work — speed, impact, and acceleration all improved.';
+      } else if (speedUp && impactUp) {
+        headline = 'Swings are faster with stronger impact — nice progress.';
+      } else if (speedUp && !impactUp) {
+        headline =
+            'Speed is up — keep the same strong contact as you swing faster.';
+      } else if (impactUp && !speedUp) {
+        headline =
+            'Impact is stronger even at similar speed — that’s efficient contact.';
+      } else if (accelUp && !speedUp) {
+        headline =
+            'Acceleration improved — you’re getting into the shot more explosively.';
+      } else if (volumeUp) {
+        headline = 'Big jump in reps — you got a lot more hits this session.';
+      } else {
+        headline =
+            'Very similar to your last session — good consistency overall.';
+      }
     }
+
+    // Detail line is simple now.
+    final detail = 'Full breakdown below • $hits total hits this session.';
+
+    return [headline, detail];
   }
-
-  String fmt(num v, {int dp = 0}) => v.toStringAsFixed(dp);
-
-  final detail =
-      'Avg → ${fmt(avg)} km/h • Max → ${fmt(max)} km/h • '
-      'Impact → ${fmt(impact)} N • Accel → ${fmt(accel)} m/s² • '
-      'Hits → $hits';
-
-  return [headline, detail];
-}
-
 
   Map<String, double?> _deltas(SessionSummary cur, SessionSummary? other) {
     if (other == null) {
@@ -388,7 +412,6 @@ class _FeedbackTabState extends State<FeedbackTab> {
     return {
       'Avg Speed': cur.avgSpeedKmh - other.avgSpeedKmh,
       'Max Speed': cur.maxSpeedKmh - other.maxSpeedKmh,
-      // Again reusing sweetSpot/consistency as impact/accel for now:
       'Impact force': (cur.sweetSpotPct - other.sweetSpotPct) * 100,
       'Acceleration': (cur.consistencyPct - other.consistencyPct) * 100,
     };
@@ -608,6 +631,17 @@ class _MetricGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final impactAvg = s.sweetSpotPct * 100;
+    final accelAvg = s.consistencyPct * 100;
+
+    // Until you have real max values for impact/accel, derive from avg.
+    final impactMax = impactAvg * 1.15;
+    final accelMax = accelAvg * 1.15;
+
+    // TEMP swing-force approximation from impact+accel.
+    final swingForceAvg = (impactAvg + accelAvg) / 2;
+    final swingForceMax = swingForceAvg * 1.15;
+
     return GridView(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
@@ -615,39 +649,43 @@ class _MetricGrid extends StatelessWidget {
         crossAxisCount: 2,
         crossAxisSpacing: 12,
         mainAxisSpacing: 12,
-        childAspectRatio: 1.18,
+        childAspectRatio: 1.1,
       ),
       children: [
-        _MetricTile(
-          title: 'Avg Speed',
-          value: s.avgSpeedKmh.toStringAsFixed(0),
+        _MetricSummaryTile(
+          title: 'Swing speed',
+          avg: s.avgSpeedKmh.toDouble(),
+          max: s.maxSpeedKmh.toDouble(),
           unit: 'km/h',
           cardBg: cardBg,
           border: border,
           primaryText: primaryText,
           secondaryText: secondaryText,
         ),
-        _MetricTile(
-          title: 'Max Speed',
-          value: s.maxSpeedKmh.toStringAsFixed(0),
-          unit: 'km/h',
+        _MetricSummaryTile(
+          title: 'Swing force',
+          avg: swingForceAvg,
+          max: swingForceMax,
+          unit: 'au',
           cardBg: cardBg,
           border: border,
           primaryText: primaryText,
           secondaryText: secondaryText,
         ),
-        _MetricTile(
+        _MetricSummaryTile(
           title: 'Impact force',
-          value: (s.sweetSpotPct * 100).toStringAsFixed(0),
+          avg: impactAvg,
+          max: impactMax,
           unit: 'N',
           cardBg: cardBg,
           border: border,
           primaryText: primaryText,
           secondaryText: secondaryText,
         ),
-        _MetricTile(
+        _MetricSummaryTile(
           title: 'Acceleration',
-          value: (s.consistencyPct * 100).toStringAsFixed(0),
+          avg: accelAvg,
+          max: accelMax,
           unit: 'm/s²',
           cardBg: cardBg,
           border: border,
@@ -659,10 +697,11 @@ class _MetricGrid extends StatelessWidget {
   }
 }
 
-class _MetricTile extends StatelessWidget {
-  const _MetricTile({
+class _MetricSummaryTile extends StatelessWidget {
+  const _MetricSummaryTile({
     required this.title,
-    required this.value,
+    required this.avg,
+    required this.max,
     required this.unit,
     required this.cardBg,
     required this.border,
@@ -671,59 +710,56 @@ class _MetricTile extends StatelessWidget {
   });
 
   final String title;
-  final String value;
+  final double avg;
+  final double max;
   final String unit;
   final Color cardBg;
   final Color border;
   final Color primaryText;
   final Color secondaryText;
 
+  String _fmt(num v) => v.toStringAsFixed(v < 10 ? 1 : 0);
+
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 18),
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
       decoration: BoxDecoration(
         color: cardBg,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(22),
         border: Border.all(color: border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Bigger title font
           Text(
             title,
             style: TextStyle(
-              color: secondaryText,
-              fontWeight: FontWeight.w700,
-              fontSize: 14,
+              color: primaryText,
+              fontWeight: FontWeight.w900,
+              fontSize: 18,
             ),
           ),
-          const Spacer(),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                value,
-                style: TextStyle(
-                  color: primaryText,
-                  fontSize: 28,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              if (unit.isNotEmpty) ...[
-                const SizedBox(width: 4),
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Text(
-                    unit,
-                    style: TextStyle(
-                      color: secondaryText,
-                      fontSize: 13,
-                    ),
-                  ),
-                ),
-              ],
-            ],
+          const SizedBox(height: 12),
+          // Avg
+          Text(
+            'Avg ${_fmt(avg)} $unit',
+            style: TextStyle(
+              color: secondaryText,
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 6),
+          // Max
+          Text(
+            'Max ${_fmt(max)} $unit',
+            style: TextStyle(
+              color: secondaryText,
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ],
       ),
@@ -758,21 +794,23 @@ class _HitsCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // 🔥 Make "Hits" the bold hero
           Text(
             'Hits',
             style: TextStyle(
-              color: secondaryText,
-              fontWeight: FontWeight.w700,
-              fontSize: 14,
+              color: primaryText,
+              fontWeight: FontWeight.w900,
+              fontSize: 18,
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
+          // Number is still big, but slightly lighter weight
           Text(
             '$hits',
             style: TextStyle(
-              color: primaryText,
-              fontSize: 28,
-              fontWeight: FontWeight.w900,
+              color: secondaryText,
+              fontSize: 24,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ],
@@ -780,6 +818,7 @@ class _HitsCard extends StatelessWidget {
     );
   }
 }
+
 
 class _CompareList extends StatelessWidget {
   const _CompareList({
@@ -955,5 +994,414 @@ class _TipsCard extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+/* ----------- Graph section + mini chart ----------- */
+
+class _GraphSection extends StatelessWidget {
+  const _GraphSection({
+    required this.session,
+    required this.metric,
+    required this.onMetricChanged,
+    required this.cardBg,
+    required this.border,
+    required this.primaryText,
+    required this.secondaryText,
+    required this.isDark,
+  });
+
+  final SessionSummary session;
+  final GraphMetric metric;
+  final ValueChanged<GraphMetric> onMetricChanged;
+
+  final Color cardBg;
+  final Color border;
+  final Color primaryText;
+  final Color secondaryText;
+  final bool isDark;
+
+  String _metricLabel(GraphMetric m) {
+    switch (m) {
+      case GraphMetric.swingSpeed:
+        return 'Swing speed';
+      case GraphMetric.swingForce:
+        return 'Swing force';
+      case GraphMetric.acceleration:
+        return 'Acceleration';
+      case GraphMetric.impactForce:
+        return 'Impact force';
+    }
+  }
+
+  String _metricUnit(GraphMetric m) {
+    switch (m) {
+      case GraphMetric.swingSpeed:
+        return 'km/h';
+      case GraphMetric.swingForce:
+        return 'au';
+      case GraphMetric.acceleration:
+        return 'm/s²';
+      case GraphMetric.impactForce:
+        return 'N';
+    }
+  }
+
+  // Synthetic series for now – treat x-axis as time across the session.
+  List<double> _seriesFor(GraphMetric m) {
+    final impactAvg = session.sweetSpotPct * 100;
+    final accelAvg = session.consistencyPct * 100;
+
+    double base;
+    switch (m) {
+      case GraphMetric.swingSpeed:
+        base = session.avgSpeedKmh.toDouble();
+        break;
+      case GraphMetric.swingForce:
+        base = (impactAvg + accelAvg) / 2;
+        break;
+      case GraphMetric.acceleration:
+        base = accelAvg;
+        break;
+      case GraphMetric.impactForce:
+        base = impactAvg;
+        break;
+    }
+
+    const count = 18;
+    return List<double>.generate(count, (i) {
+      final t = i / (count - 1); // 0 → 1 across session time
+      final bump = 0.1 * (1 - (2 * t - 1) * (2 * t - 1)); // small smooth arch
+      return base * (0.9 + bump);
+    });
+  }
+
+  void _openFullScreenChart(BuildContext context, List<double> series) {
+    final label = _metricLabel(metric);
+    final unit = _metricUnit(metric);
+
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withOpacity(.7),
+      builder: (ctx) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 24),
+          child: LayoutBuilder(
+            builder: (ctx, constraints) {
+              final maxWidth = constraints.maxWidth.clamp(0.0, 520.0);
+              final dialogBg =
+                  isDark ? const Color(0xFF020617) : Colors.white;
+
+              return Center(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: maxWidth),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: dialogBg,
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(
+                        color: isDark
+                            ? Colors.white.withOpacity(.18)
+                            : const Color(0xFFE5E7EB),
+                      ),
+                    ),
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '$label trend over time ($unit)',
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: primaryText,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                            IconButton(
+                              icon: Icon(
+                                Icons.close_rounded,
+                                color: secondaryText,
+                              ),
+                              onPressed: () => Navigator.of(ctx).pop(),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          height: 220,
+                          width: double.infinity,
+                          child: _MiniBarChart(
+                            values: series,
+                            lineColor: isDark
+                                ? Colors.white.withOpacity(.95)
+                                : const Color(0xFF111827),
+                            fillColor: isDark
+                                ? Colors.white.withOpacity(.12)
+                                : const Color(0xFFE5E7EB),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Start of session',
+                              style: TextStyle(
+                                color: secondaryText,
+                                fontSize: 11,
+                              ),
+                            ),
+                            Text(
+                              'Time →',
+                              style: TextStyle(
+                                color: secondaryText,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            Text(
+                              'End of session',
+                              style: TextStyle(
+                                color: secondaryText,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final label = _metricLabel(metric);
+    final unit = _metricUnit(metric);
+    final series = _seriesFor(metric);
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 18),
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Title + dropdown
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Session graphs',
+                  style: TextStyle(
+                    color: primaryText,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                decoration: BoxDecoration(
+                  color:
+                      isDark ? Colors.white.withOpacity(.08) : Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: isDark
+                        ? Colors.white.withOpacity(.16)
+                        : const Color(0xFFE5E7EB),
+                  ),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<GraphMetric>(
+                    value: metric,
+                    dropdownColor:
+                        isDark ? const Color(0xFF111827) : Colors.white,
+                    iconEnabledColor:
+                        isDark ? Colors.white : const Color(0xFF4B5563),
+                    style: TextStyle(
+                      color: primaryText,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                    ),
+                    onChanged: (m) {
+                      if (m != null) onMetricChanged(m);
+                    },
+                    items: const [
+                      DropdownMenuItem(
+                        value: GraphMetric.swingSpeed,
+                        child: Text('Swing speed'),
+                      ),
+                      DropdownMenuItem(
+                        value: GraphMetric.swingForce,
+                        child: Text('Swing force'),
+                      ),
+                      DropdownMenuItem(
+                        value: GraphMetric.acceleration,
+                        child: Text('Acceleration'),
+                      ),
+                      DropdownMenuItem(
+                        value: GraphMetric.impactForce,
+                        child: Text('Impact force'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 12),
+
+          Text(
+            '$label trend ($unit)',
+            style: TextStyle(
+              color: secondaryText,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          // Clickable chart area
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(18),
+              onTap: () => _openFullScreenChart(context, series),
+              child: SizedBox(
+                height: 140,
+                width: double.infinity,
+                child: _MiniBarChart(
+                  values: series,
+                  lineColor: isDark
+                      ? Colors.white.withOpacity(.9)
+                      : const Color(0xFF1F2937),
+                  fillColor: isDark
+                      ? Colors.white.withOpacity(.12)
+                      : const Color(0xFFE5E7EB),
+                ),
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 4),
+          Text(
+            'Tap the chart to expand',
+            style: TextStyle(
+              color: secondaryText.withOpacity(.8),
+              fontSize: 11,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MiniBarChart extends StatelessWidget {
+  const _MiniBarChart({
+    required this.values,
+    required this.lineColor,
+    required this.fillColor,
+  });
+
+  final List<double> values;
+  final Color lineColor;
+  final Color fillColor;
+
+  @override
+  Widget build(BuildContext context) {
+    if (values.isEmpty) {
+      return const Center(child: Text('No data'));
+    }
+
+    final minV = values.reduce((a, b) => a < b ? a : b);
+    final maxV = values.reduce((a, b) => a > b ? a : b);
+    final double range =
+        (maxV - minV).clamp(1e-6, double.infinity) as double;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final w = constraints.maxWidth;
+        final h = constraints.maxHeight;
+        final step = values.length > 1 ? w / (values.length - 1) : 0.0;
+
+        final points = <Offset>[];
+        for (var i = 0; i < values.length; i++) {
+          final x = i * step;
+          final norm = (values[i] - minV) / range;
+          final y = h - norm * (h - 12); // top padding
+          points.add(Offset(x, y));
+        }
+
+        return CustomPaint(
+          painter: _MiniChartPainter(
+            points: points,
+            lineColor: lineColor,
+            fillColor: fillColor,
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _MiniChartPainter extends CustomPainter {
+  _MiniChartPainter({
+    required this.points,
+    required this.lineColor,
+    required this.fillColor,
+  });
+
+  final List<Offset> points;
+  final Color lineColor;
+  final Color fillColor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (points.length < 2) return;
+
+    final fillPath = Path()
+      ..moveTo(points.first.dx, size.height)
+      ..addPolygon(points, false)
+      ..lineTo(points.last.dx, size.height)
+      ..close();
+
+    final fillPaint = Paint()
+      ..color = fillColor
+      ..style = PaintingStyle.fill;
+    canvas.drawPath(fillPath, fillPaint);
+
+    final linePaint = Paint()
+      ..color = lineColor
+      ..strokeWidth = 2
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    canvas.drawPoints(ui.PointMode.polygon, points, linePaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _MiniChartPainter oldDelegate) {
+    return oldDelegate.points != points ||
+        oldDelegate.lineColor != lineColor ||
+        oldDelegate.fillColor != fillColor;
   }
 }
