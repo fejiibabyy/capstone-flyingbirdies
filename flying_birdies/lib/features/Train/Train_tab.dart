@@ -1,560 +1,943 @@
-// lib/features/train/train_tab.dart
+// lib/features/Train/train_tab.dart
 import 'dart:async';
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../../app/theme.dart';
+import '../../services/ble_service.dart';
+import '../../services/analytics_service.dart';
+import '../../services/session_service.dart';
+import '../../state/connection_state_notifier.dart';
+import '../../state/session_state_notifier.dart';
+import '../../state/player_settings_notifier.dart';
 
 class TrainTab extends StatefulWidget {
   const TrainTab({super.key, this.deviceName});
-  final String? deviceName; // if null -> focus cards disabled
+
+  /// If null, we treat as "not connected".
+  final String? deviceName;
 
   @override
   State<TrainTab> createState() => _TrainTabState();
 }
 
 class _TrainTabState extends State<TrainTab> {
-  // Exactly 4 strokes
-  final _strokes = const [
-    _StrokeMeta(
-      key: 'oh-fh',
-      title: 'Overhead Forehand',
-      subtitle: 'Power overhead attack shot',
-      speedRange: 'Speed: 180–220 km/h',
-      forceRange: 'Force: 80–110 N',
-      icon: Icons.arrow_circle_down_rounded,
-    ),
-    _StrokeMeta(
-      key: 'oh-bh',
-      title: 'Overhead Backhand',
-      subtitle: 'High defensive clear/backcourt',
-      speedRange: 'Speed: 140–170 km/h',
-      forceRange: 'Force: 50–75 N',
-      icon: Icons.arrow_circle_up_rounded,
-    ),
-    _StrokeMeta(
-      key: 'ua-fh',
-      title: 'Underarm Forehand',
-      subtitle: 'Soft finesse to front court',
-      speedRange: 'Speed: 80–105 km/h',
-      forceRange: 'Force: 25–40 N',
-      icon: Icons.sports_tennis,
-    ),
-    _StrokeMeta(
-      key: 'ua-bh',
-      title: 'Underarm Backhand',
-      subtitle: 'Fast horizontal drive',
-      speedRange: 'Speed: 120–145 km/h',
-      forceRange: 'Force: 40–60 N',
-      icon: Icons.bolt_rounded,
-    ),
-  ];
+  String? _selectedKey;
+  bool _sessionActive = false;
+  int _shotCount = 0;
 
-  String? _selectedKey; // null = no focus
-  bool get _isConnected => widget.deviceName != null;
+  // Live metrics – only updated when a **shot** is registered.
+  double swingSpeed = 0; // km/h
+  double impactForce = 0; // N
+  double acceleration = 0; // m/s^2
+  double swingForce = 0; // arbitrary unit
 
-  // Live metrics (mock stream for now; swap with BLE updates later)
-  Timer? _ticker;
-  int _t = 0;
-  double swingSpeed = 0;   // km/h
-  double impactForce = 0;  // N
-  double acceleration = 0; // m/s²
-  double swingForce = 0;   // pseudo unit
+  // Stream subscriptions
+  StreamSubscription? _imuSubscription;
+  StreamSubscription? _swingSubscription;
+  StreamSubscription? _connectionSubscription;
+
+  int? _currentSessionId;
 
   @override
   void initState() {
     super.initState();
-    _startMockLoop();
+    // Load player settings on init
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final playerSettings = context.read<PlayerSettingsNotifier>();
+      playerSettings.loadSettings();
+    });
+    // Default to first stroke so dropdown has a value.
+    _selectedKey =
+        _getStrokes(true).first.key; // Default to right-handed initially
+  }
+
+  List<_StrokeMeta> _getStrokes(bool isRightHanded) {
+    final dominantSide = isRightHanded ? 'right' : 'left';
+    final nonDominantSide = isRightHanded ? 'left' : 'right';
+
+    return [
+      _StrokeMeta(
+        key: 'oh-fh',
+        title: 'Overhead Forehand',
+        subtitle:
+            'Swing above your head on $dominantSide side using a forward forehand motion',
+      ),
+      _StrokeMeta(
+        key: 'oh-bh',
+        title: 'Overhead Backhand',
+        subtitle:
+            'Reach above your head on the $nonDominantSide side and swing using a backhand motion',
+      ),
+      _StrokeMeta(
+        key: 'ua-fh',
+        title: 'Underarm Forehand',
+        subtitle:
+            'Scoop or lift the shuttle from below waist height on the $dominantSide side with a forehand swing',
+      ),
+      _StrokeMeta(
+        key: 'ua-bh',
+        title: 'Underarm Backhand',
+        subtitle:
+            'Use a low backhand swing on the $nonDominantSide side to return or lift the shuttle',
+      ),
+    ];
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    // Get services from Provider
+    final bleService = Provider.of<BleService>(context, listen: false);
+    final analyticsService =
+        Provider.of<AnalyticsService>(context, listen: false);
+    final sessionService = Provider.of<SessionService>(context, listen: false);
+
+    // Cancel existing subscriptions
+    _imuSubscription?.cancel();
+    _swingSubscription?.cancel();
+    _connectionSubscription?.cancel();
+
+    // Subscribe to IMU data stream and process through analytics
+    _imuSubscription = bleService.imuDataStream.listen((reading) {
+      if (_sessionActive) {
+        analyticsService.processReading(reading);
+      }
+    });
+
+    // Subscribe to swing detection stream
+    _swingSubscription = analyticsService.swingStream.listen((swing) {
+      if (_sessionActive && mounted) {
+        setState(() {
+          // Update all 4 metrics from detected swing
+          swingSpeed = swing.maxVtip * 3.6; // m/s to km/h
+          impactForce = swing.estForceN;
+          acceleration = swing.impactAmax;
+          swingForce = swing.impactSeverity;
+          _shotCount += 1;
+        });
+
+        // Save to database via SessionService
+        if (_currentSessionId != null) {
+          sessionService.recordSwing(_currentSessionId!, swing);
+        }
+      }
+    });
+
+    // Subscribe to connection state changes
+    _connectionSubscription = bleService.connectionStateStream.listen((state) {
+      if (mounted) {
+        setState(() {
+          // Trigger rebuild when connection state changes
+        });
+      }
+    });
   }
 
   @override
   void dispose() {
-    _ticker?.cancel();
+    _imuSubscription?.cancel();
+    _swingSubscription?.cancel();
+    _connectionSubscription?.cancel();
     super.dispose();
   }
 
-  void _startMockLoop() {
-    _ticker?.cancel();
-    _ticker = Timer.periodic(const Duration(milliseconds: 350), (_) {
-      _t++;
-      final rnd = math.Random();
-      swingSpeed = (190 + 70 * math.sin(_t / 4) + rnd.nextDouble() * 14).clamp(0, 320);
-      impactForce = (95 + 35 * math.cos(_t / 5) + rnd.nextDouble() * 10).clamp(20, 180);
-      acceleration = (28 + 18 * math.sin(_t / 6) + rnd.nextDouble() * 5).clamp(5, 60);
-      swingForce = (60 + 30 * math.cos(_t / 7) + rnd.nextDouble() * 8).clamp(10, 120);
-      setState(() {});
+  _StrokeMeta _currentStroke(bool isRightHanded) {
+    final strokes = _getStrokes(isRightHanded);
+    final sel = strokes.firstWhere(
+      (s) => s.key == _selectedKey,
+      orElse: () => strokes.first,
+    );
+    return sel;
+  }
+
+  void _onSelectStroke(String key) {
+    setState(() {
+      _selectedKey = key;
     });
   }
 
-  double get _powerIndex {
-    final v = (swingSpeed / 320).clamp(0, 1);
-    final f = (impactForce / 180).clamp(0, 1);
-    return (100 * (0.65 * v + 0.35 * f)).clamp(0, 100);
-  }
+  Future<void> _onToggleSession() async {
+    final bleService = Provider.of<BleService>(context, listen: false);
+    final analyticsService =
+        Provider.of<AnalyticsService>(context, listen: false);
+    final sessionService = Provider.of<SessionService>(context, listen: false);
+    final sessionStateNotifier =
+        Provider.of<SessionStateNotifier>(context, listen: false);
+    final playerSettings =
+        Provider.of<PlayerSettingsNotifier>(context, listen: false);
 
-  double get _sweetSpotPct {
-    final base = 76 + 9 * math.sin(_t / 8);
-    return base.clamp(0, 100);
+    // You must be connected before starting.
+    if (!_sessionActive) {
+      if (!bleService.isConnected) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Connect your sensor before starting a session.'),
+          ),
+        );
+        return;
+      }
+
+      // Start new session
+      try {
+        final sessionId = await sessionService.startSession(
+          userId: null, // TODO: Get from auth service
+          deviceId: bleService.connectedDeviceId,
+          strokeFocus: _currentStroke(playerSettings.isRightHanded).title,
+        );
+
+        setState(() {
+          _currentSessionId = sessionId;
+          _shotCount = 0;
+          swingSpeed = 0;
+          impactForce = 0;
+          acceleration = 0;
+          swingForce = 0;
+          _sessionActive = true;
+        });
+
+        // Clear analyzer state
+        analyticsService.reset();
+
+        // Update session state notifier
+        sessionStateNotifier.startSession(sessionId);
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to start session: $e')),
+          );
+        }
+      }
+    } else {
+      // End session
+      if (_currentSessionId != null) {
+        try {
+          await sessionService.endSession(_currentSessionId!);
+
+          // Update session state notifier
+          sessionStateNotifier.endSession();
+        } catch (e) {
+          debugPrint('Failed to end session: $e');
+        }
+      }
+
+      setState(() {
+        _sessionActive = false;
+        _currentSessionId = null;
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final disabledMsg = !_isConnected ? 'Connect your sensor to select a practice focus' : null;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryText = isDark ? Colors.white : const Color(0xFF111827);
+
+    // Get connection state from Provider
+    final connectionState = context.watch<ConnectionStateNotifier>();
+    final isConnected = connectionState.isConnected;
+
+    // Get player settings from Provider (watch for changes)
+    final playerSettings = context.watch<PlayerSettingsNotifier>();
+    final isRightHanded = playerSettings.isRightHanded;
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 20),
       children: [
-        // ── Overflow-safe header (two lines + ellipsis) ───────────────────────
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        // Header row: icon + title + connection pill
+        Row(
           children: [
-            Row(
-              children: [
-                const Icon(Icons.podcasts_rounded, color: Colors.white, size: 20),
-                const SizedBox(width: 8),
-                const Text(
-                  'Practice Focus',
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 20),
-                ),
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF59E0B).withOpacity(.20),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: const Color(0xFFF59E0B).withOpacity(.35)),
-                  ),
-                  child: const Text('Optional',
-                      style: TextStyle(color: Color(0xFFF59E0B), fontWeight: FontWeight.w800)),
-                ),
-              ],
+            const Icon(
+              Icons.podcasts_rounded,
+              color: Colors.white,
+              size: 20,
             ),
-            const SizedBox(height: 6),
-            if (_isConnected)
-              Row(
-                children: [
-                  const Icon(Icons.bluetooth_connected, color: Color(0xFF16A34A), size: 16),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      widget.deviceName!,
-                      overflow: TextOverflow.ellipsis,
-                      maxLines: 1,
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
-                    ),
-                  ),
-                ],
+            const SizedBox(width: 8),
+            Text(
+              'Train',
+              style: TextStyle(
+                color: primaryText,
+                fontWeight: FontWeight.w800,
+                fontSize: 22,
               ),
+            ),
+            const Spacer(),
+            _ConnectionPill(
+              isConnected: isConnected,
+              deviceName: connectionState.deviceName ??
+                  widget.deviceName ??
+                  'No sensor',
+            ),
           ],
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 14),
+
+        // Stroke selection card
         Text(
-          'Select a stroke to focus your practice session (optional)',
-          style: TextStyle(color: Colors.white.withOpacity(.85), height: 1.35),
-        ),
-        const SizedBox(height: 12),
-
-        // Focus cards
-        ..._strokes.map((m) {
-          final selected = _selectedKey == m.key;
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: _FocusCard(
-              meta: m,
-              selected: selected,
-              disabled: !_isConnected,
-              onTap: () => setState(() => _selectedKey = selected ? null : m.key),
-            ),
-          );
-        }),
-
-        if (disabledMsg != null) ...[
-          const SizedBox(height: 6),
-          _DisabledBanner(text: disabledMsg),
-        ],
-
-        const SizedBox(height: 18),
-        const _SectionHeader('Live Sensor Readings'),
-
-        _MetricCard(
-          title: 'Swing Speed',
-          unit: 'km/h',
-          value: swingSpeed,
-          badge: swingSpeed < 130
-              ? _Badge('Beginner', const Color(0xFFFB7185))
-              : swingSpeed < 180
-                  ? _Badge('Intermediate', const Color(0xFFF59E0B))
-                  : _Badge('Advanced', const Color(0xFF34D399)),
-          trailingIcon: Icons.bolt_rounded,
-        ),
-        const SizedBox(height: 12),
-
-        _MetricCard(
-          title: 'Impact Force',
-          unit: 'N',
-          value: impactForce,
-          badge: impactForce < 60
-              ? _Badge('Gentle', const Color(0xFF34D399))
-              : impactForce < 90
-                  ? _Badge('Solid', const Color(0xFFF59E0B))
-                  : _Badge('Heavy', const Color(0xFFFB7185)),
-          trailingIcon: Icons.fiber_smart_record_rounded,
-        ),
-        const SizedBox(height: 12),
-
-        _MetricCard(
-          title: 'Acceleration',
-          unit: 'm/s²',
-          value: acceleration,
-          trailingIcon: Icons.trending_up_rounded,
-          showBar: true,
-          barMax: 60,
-        ),
-        const SizedBox(height: 12),
-
-        _MetricCard(
-          title: 'Swing Force',
-          unit: 'au',
-          value: swingForce,
-          trailingIcon: Icons.change_circle_rounded,
-          showBar: true,
-          barMax: 120,
-        ),
-
-        const SizedBox(height: 18),
-
-        // ── Performance Analysis header + two metric-style glass cards ────────
-        const _SectionHeader('Performance Analysis'),
-        const SizedBox(height: 12),
-
-        _MetricCard(
-          title: 'Power Index',
-          unit: '', // no unit
-          value: _powerIndex,
-          trailingIcon: Icons.insights,
-          showBar: true,
-          barMax: 100,
-        ),
-        const SizedBox(height: 12),
-
-        _MetricCard(
-          title: 'Sweet-Spot %',
-          unit: '%',
-          value: _sweetSpotPct,
-          trailingIcon: Icons.center_focus_strong_rounded,
-          showBar: true,
-          barMax: 100,
-        ),
-
-        const SizedBox(height: 18),
-
-        // ── Training Tips in its OWN glass card ───────────────────────────────
-        _GlassCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const _SectionHeader('Training Tips'),
-              const SizedBox(height: 8),
-              ..._tipsForFocus(_selectedKey).map((t) => _TipRow(text: t)),
-            ],
+          'Stroke selection',
+          style: TextStyle(
+            color: primaryText,
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
           ),
         ),
+        const SizedBox(height: 8),
+        _StrokeSelectionCard(
+          strokes: _getStrokes(isRightHanded),
+          selectedKey: _selectedKey,
+          onSelect: _onSelectStroke,
+        ),
 
-        const SizedBox(height: 80),
+        const SizedBox(height: 16),
+
+        // Live sensor readings section
+        Text(
+          'Live Sensor Readings',
+          style: TextStyle(
+            color: primaryText,
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 8),
+
+        // Start / End button moved up, directly under the heading.
+        _PrimaryButton(
+          label: _sessionActive ? 'End session' : 'Start session',
+          onTap: _onToggleSession,
+        ),
+
+        const SizedBox(height: 10),
+
+        // Combined session status card
+        _SessionStatusCard(
+          count: _shotCount,
+          isActive: _sessionActive,
+          selectedStroke:
+              _selectedKey != null ? _currentStroke(isRightHanded).title : null,
+        ),
+
+        const SizedBox(height: 10),
+
+        // 4 metrics in a horizontal 2x2 layout
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            _MetricSmallCard(
+              title: 'Swing Speed',
+              value: swingSpeed,
+              unit: 'km/h',
+            ),
+            _MetricSmallCard(
+              title: 'Impact Force',
+              value: impactForce,
+              unit: 'N',
+            ),
+            _MetricSmallCard(
+              title: 'Acceleration',
+              value: acceleration,
+              unit: 'm/s²',
+            ),
+            _MetricSmallCard(
+              title: 'Swing Force',
+              value: swingForce,
+              unit: 'N',
+            ),
+          ],
+        ),
+
+        const SizedBox(height: 20),
       ],
     );
   }
-
-  List<String> _tipsForFocus(String? key) {
-    switch (key) {
-      case 'oh-fh':
-        return const [
-          'Keep elbow high; wrist snap at impact.',
-          'Strike in front of shoulder for max leverage.',
-          'Use core rotation, not just arm speed.',
-        ];
-      case 'oh-bh':
-        return const [
-          'Turn shoulder quickly; contact high and early.',
-          'Grip relax → tighten at impact for control.',
-        ];
-      case 'ua-fh':
-        return const [
-          'Soft hands; brush the shuttle for tight net shots.',
-          'Stay low; recover to center ready position.',
-        ];
-      case 'ua-bh':
-        return const [
-          'Short backswing; use forearm rotation.',
-          'Keep racket up; prepare for fast exchanges.',
-        ];
-      default:
-        return const [
-          'Warm up your wrist & shoulder mobility.',
-          'Focus on smooth acceleration into contact.',
-        ];
-    }
-  }
 }
 
-// ───────────────────────── UI bits ─────────────────────────
+/* ==================== SMALL WIDGETS ==================== */
 
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader(this.text);
-  final String text;
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      text,
-      style: const TextStyle(
-        color: Colors.white, fontWeight: FontWeight.w800, fontSize: 18),
-    );
-  }
-}
-
-class _GlassCard extends StatelessWidget {
-  const _GlassCard({required this.child});
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(18),
-        color: Colors.white.withOpacity(.04),
-        border: Border.all(color: Colors.white.withOpacity(.10)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(.22),
-            blurRadius: 18,
-            offset: const Offset(0, 12),
-          ),
-        ],
-      ),
-      child: child,
-    );
-  }
-}
-
-class _FocusCard extends StatelessWidget {
-  const _FocusCard({
-    required this.meta,
-    required this.selected,
-    required this.disabled,
-    required this.onTap,
+class _ConnectionPill extends StatelessWidget {
+  const _ConnectionPill({
+    required this.isConnected,
+    required this.deviceName,
   });
 
-  final _StrokeMeta meta;
-  final bool selected;
-  final bool disabled;
-  final VoidCallback onTap;
+  final bool isConnected;
+  final String deviceName;
 
   @override
   Widget build(BuildContext context) {
-    final base = Container(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+    final color =
+        isConnected ? const Color(0xFF22C55E) : const Color(0xFFF97316);
+    final bg = color.withValues(alpha: .16);
+
+    // Display actual device name when connected, or "Not connected" when disconnected
+    final displayText = isConnected ? deviceName : 'Not connected';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(18),
-        color: Colors.white.withOpacity(.04),
-        border: Border.all(
-          color: (selected ? Colors.white.withOpacity(.28) : Colors.white.withOpacity(.10)),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(.22),
-            blurRadius: 18,
-            offset: const Offset(0, 12),
+        color: bg,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: .6)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            isConnected ? Icons.bluetooth_connected : Icons.bluetooth_disabled,
+            size: 16,
+            color: color,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            displayText,
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.w700,
+              fontSize: 13,
+            ),
           ),
         ],
       ),
-      child: Opacity(
-        opacity: disabled ? .55 : 1,
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 36, height: 36,
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(.08),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(meta.icon, color: Colors.white70, size: 20),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(meta.title,
-                            overflow: TextOverflow.ellipsis,
-                            maxLines: 1,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w800,
-                            )),
-                      ),
-                      const SizedBox(width: 8),
-                      if (selected)
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF7C3AED),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: const Text(
-                            'Selected',
-                            style: TextStyle(
-                              color: Colors.white, fontWeight: FontWeight.w800, fontSize: 12),
-                          ),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    meta.subtitle,
-                    style: TextStyle(color: Colors.white.withOpacity(.85)),
-                  ),
-                  const SizedBox(height: 10),
-                  Text(meta.speedRange,
-                      style: TextStyle(color: Colors.white.withOpacity(.70), fontSize: 13)),
-                  Text(meta.forceRange,
-                      style: TextStyle(color: Colors.white.withOpacity(.70), fontSize: 13)),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-
-    if (disabled) return base;
-    return InkWell(
-      borderRadius: BorderRadius.circular(18),
-      onTap: onTap,
-      child: base,
     );
   }
 }
 
-class _DisabledBanner extends StatelessWidget {
-  const _DisabledBanner({required this.text});
-  final String text;
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(14),
-        color: const Color(0xFFF59E0B).withOpacity(.14),
-        border: Border.all(color: const Color(0xFFF59E0B).withOpacity(.35)),
-      ),
-      child: Text(
-        text,
-        style: const TextStyle(color: Color(0xFFF59E0B), fontWeight: FontWeight.w800),
-      ),
-    );
-  }
-}
-
-class _MetricCard extends StatelessWidget {
-  const _MetricCard({
-    required this.title,
-    required this.unit,
-    required this.value,
-    this.badge,
-    this.trailingIcon,
-    this.showBar = false,
-    this.barMax = 100,
+class _StrokeSelectionCard extends StatelessWidget {
+  const _StrokeSelectionCard({
+    required this.strokes,
+    required this.selectedKey,
+    required this.onSelect,
   });
 
-  final String title;
-  final String unit;
-  final double value;
-  final _Badge? badge;
-  final IconData? trailingIcon;
-  final bool showBar;
-  final double barMax;
+  final List<_StrokeMeta> strokes;
+  final String? selectedKey;
+  final ValueChanged<String> onSelect;
 
   @override
   Widget build(BuildContext context) {
-    final vStr = value.isFinite ? value.toStringAsFixed(value < 10 ? 1 : 0) : '0';
-    final double pct = (value / barMax).clamp(0.0, 1.0).toDouble();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = isDark ? Colors.white.withValues(alpha: 0.04) : Colors.white;
+    final border =
+        isDark ? Colors.white.withValues(alpha: 0.12) : const Color(0x14000000);
+    final titleColor = isDark ? Colors.white : const Color(0xFF111827);
+    final subColor =
+        isDark ? Colors.white.withValues(alpha: .80) : const Color(0xFF4B5563);
+
+    final selectedValue = selectedKey ?? strokes.first.key;
+    final current = strokes.firstWhere(
+      (s) => s.key == selectedValue,
+      orElse: () => strokes.first,
+    );
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
       decoration: BoxDecoration(
+        color: bg,
         borderRadius: BorderRadius.circular(18),
-        color: Colors.white.withOpacity(.04),
-        border: Border.all(color: Colors.white.withOpacity(.10)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(.22),
-            blurRadius: 18,
-            offset: const Offset(0, 12),
-          ),
-        ],
+        border: Border.all(color: border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Text(title,
-                  style: const TextStyle(
-                    color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16)),
-              const Spacer(),
-              if (trailingIcon != null)
-                Container(
-                  width: 34, height: 34,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(.06),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Icon(trailingIcon, color: Colors.white70, size: 18),
+          // dropdown for stroke types (moved to top)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              color: isDark
+                  ? Colors.white.withValues(alpha: .06)
+                  : const Color(0xFFF3F4FF),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isDark
+                    ? Colors.white.withValues(alpha: .18)
+                    : const Color(0xFFE5E7EB),
+              ),
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                value: selectedValue,
+                isExpanded: true,
+                dropdownColor: isDark ? const Color(0xFF151A29) : Colors.white,
+                icon: Icon(
+                  Icons.keyboard_arrow_down_rounded,
+                  color: isDark
+                      ? Colors.white.withValues(alpha: .85)
+                      : const Color(0xFF4B5563),
                 ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                vStr,
-                style: const TextStyle(
-                  color: Colors.white, fontWeight: FontWeight.w800, fontSize: 32),
+                style: TextStyle(
+                  color: titleColor,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 16,
+                ),
+                items: strokes
+                    .map(
+                      (s) => DropdownMenuItem<String>(
+                        value: s.key,
+                        child: Text(s.title),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (val) {
+                  if (val != null) onSelect(val);
+                },
               ),
-              const SizedBox(width: 6),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Text(unit,
-                    style: TextStyle(color: Colors.white.withOpacity(.85), fontSize: 14)),
-              ),
-              const Spacer(),
-              if (badge != null) _BadgeChip(badge: badge!),
-            ],
+            ),
           ),
-          if (showBar) ...[
-            const SizedBox(height: 12),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(999),
-              child: Stack(
+          const SizedBox(height: 10),
+
+          // caption below dropdown
+          Text(
+            current.subtitle,
+            style: TextStyle(
+              color: subColor,
+              fontSize: 13,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LiveSensorHeroCard extends StatelessWidget {
+  const _LiveSensorHeroCard({
+    required this.isActive,
+    required this.selectedStroke,
+  });
+
+  final bool isActive;
+  final String? selectedStroke;
+
+  @override
+  Widget build(BuildContext context) {
+    final statusTitle = isActive ? 'Session live' : 'Session ready';
+
+    final statusSubtitle = !isActive
+        ? (selectedStroke == null
+            ? 'Choose a stroke above, then tap Start session to begin recording.'
+            : 'Tap Start session to start recording $selectedStroke swings.')
+        : 'Recording hits for ${selectedStroke ?? 'your stroke'}.\nMetrics update on each registered shot.';
+
+    return Container(
+      height: 140, // bumped up so text doesn't overflow
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFFCF67FF), Color(0xFF78C4FF)],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: .28),
+            blurRadius: 20,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
+        child: Row(
+          children: [
+            Container(
+              width: 82,
+              height: 82,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(24),
+                gradient: const LinearGradient(colors: AppTheme.gCTA),
+              ),
+              child: Icon(
+                Icons.sports_tennis_rounded,
+                color: Colors.white.withValues(alpha: .90),
+                size: 40,
+              ),
+            ),
+            const SizedBox(width: 18),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(height: 10, color: Colors.white.withOpacity(.08)),
-                  FractionallySizedBox(
-                    widthFactor: pct,
-                    child: Container(
-                      height: 10,
-                      decoration: const BoxDecoration(
-                        gradient: LinearGradient(colors: AppTheme.gCTA),
+                  Text(
+                    statusTitle,
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: .98),
+                      fontWeight: FontWeight.w800,
+                      fontSize: 20,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    statusSubtitle,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: .88),
+                      height: 1.35,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// Combined session status card - swing count on left, status on right
+class _SessionStatusCard extends StatelessWidget {
+  const _SessionStatusCard({
+    required this.count,
+    required this.isActive,
+    this.selectedStroke,
+  });
+
+  final int count;
+  final bool isActive;
+  final String? selectedStroke;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final statusTitle = isActive ? 'Session live' : 'Session ready';
+    final statusSubtitle = !isActive
+        ? (selectedStroke == null
+            ? 'Choose a stroke above, then tap Start session to begin recording.'
+            : 'Tap Start session to start recording $selectedStroke swings.')
+        : 'Recording hits for ${selectedStroke ?? 'your stroke'}.\nMetrics update on each registered shot.';
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.white.withValues(alpha: 0.04) : Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: isDark
+            ? Border.all(
+                color: Colors.white.withValues(alpha: 0.12),
+              )
+            : null,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? .25 : .12),
+            blurRadius: 16,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          // Left side: Swing count with subtle background
+          Expanded(
+            flex: 2,
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 14),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: isDark
+                      ? [
+                          Colors.white.withValues(alpha: .08),
+                          Colors.white.withValues(alpha: .04),
+                        ]
+                      : [
+                          const Color(0xFFF9FAFB),
+                          const Color(0xFFF3F4F6),
+                        ],
+                ),
+                border: Border.all(
+                  color: isDark
+                      ? Colors.white.withValues(alpha: .12)
+                      : const Color(0xFFE5E7EB),
+                  width: 1,
+                ),
+              ),
+              child: Column(
+                children: [
+                  Text(
+                    '$count',
+                    style: TextStyle(
+                      color: isDark ? Colors.white : const Color(0xFF111827),
+                      fontSize: 48,
+                      fontWeight: FontWeight.w800,
+                      height: 1.0,
+                      letterSpacing: -1.5,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? Colors.white.withValues(alpha: .10)
+                          : const Color(0xFFE5E7EB),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      'Shot Count',
+                      style: TextStyle(
+                        color: isDark
+                            ? Colors.white.withValues(alpha: .90)
+                            : const Color(0xFF4B5563),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.5,
                       ),
                     ),
                   ),
                 ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 14),
+          // Right side: Session status
+          Expanded(
+            flex: 3,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(14),
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFFCF67FF), Color(0xFF78C4FF)],
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFFCF67FF).withValues(alpha: .3),
+                        blurRadius: 8,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Icon(
+                    Icons.sports_tennis_rounded,
+                    color: Colors.white.withValues(alpha: .95),
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        statusTitle,
+                        style: TextStyle(
+                          color:
+                              isDark ? Colors.white : const Color(0xFF111827),
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13,
+                          letterSpacing: 0.2,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        statusSubtitle,
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: isDark
+                              ? Colors.white.withValues(alpha: .75)
+                              : const Color(0xFF6B7280),
+                          fontSize: 9,
+                          height: 1.3,
+                          letterSpacing: 0.1,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// Compact session badge for top-right corner
+class _CompactSessionBadge extends StatelessWidget {
+  const _CompactSessionBadge({
+    required this.isActive,
+    this.selectedStroke,
+  });
+
+  final bool isActive;
+  final String? selectedStroke;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final statusText = isActive ? 'Live' : 'Ready';
+    final statusColor =
+        isActive ? const Color(0xFF22C55E) : const Color(0xFFF59E0B);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: statusColor.withValues(alpha: .16),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: statusColor.withValues(alpha: .35),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              color: statusColor,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            statusText,
+            style: TextStyle(
+              color: isDark ? Colors.white : const Color(0xFF111827),
+              fontWeight: FontWeight.w800,
+              fontSize: 14,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// Swing count card - white background, centered
+class _SwingCountCard extends StatelessWidget {
+  const _SwingCountCard({
+    required this.count,
+    required this.sessionActive,
+  });
+
+  final int count;
+  final bool sessionActive;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Container(
+      height: 140,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        color: isDark ? Colors.black.withValues(alpha: 0.15) : Colors.white,
+        border: Border.all(
+          color: isDark
+              ? Colors.white.withValues(alpha: .08)
+              : Colors.black.withValues(alpha: .06),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: isDark
+                ? Colors.black.withValues(alpha: .25)
+                : Colors.black.withValues(alpha: .08),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            '$count',
+            style: TextStyle(
+              color: isDark ? Colors.white : const Color(0xFF111827),
+              fontSize: 48,
+              fontWeight: FontWeight.w800,
+              height: 1.0,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            count == 1 ? 'Swing Detected' : 'Swings Detected',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: isDark
+                  ? Colors.white.withValues(alpha: .70)
+                  : const Color(0xFF6B7280),
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ShotCountPill extends StatelessWidget {
+  const _ShotCountPill({
+    required this.count,
+    required this.sessionActive,
+  });
+
+  final int count;
+  final bool sessionActive;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg =
+        isDark ? Colors.white.withValues(alpha: .06) : const Color(0xFFE5E7EB);
+    final textColor =
+        isDark ? Colors.white.withValues(alpha: .9) : const Color(0xFF111827);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: isDark ? .18 : .10),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.bolt_rounded, size: 18, color: Colors.white),
+          const SizedBox(width: 8),
+          Text(
+            '$count',
+            style: TextStyle(
+              color: textColor,
+              fontWeight: FontWeight.w800,
+              fontSize: 16,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Text(
+            'shots',
+            style: TextStyle(
+              color: textColor.withValues(alpha: .85),
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+            ),
+          ),
+          if (sessionActive) ...[
+            const SizedBox(width: 6),
+            Container(
+              width: 7,
+              height: 7,
+              decoration: const BoxDecoration(
+                color: Color(0xFF22C55E),
+                shape: BoxShape.circle,
               ),
             ),
           ],
@@ -564,53 +947,127 @@ class _MetricCard extends StatelessWidget {
   }
 }
 
-class _TipRow extends StatelessWidget {
-  const _TipRow({required this.text});
-  final String text;
+class _MetricSmallCard extends StatelessWidget {
+  const _MetricSmallCard({
+    required this.title,
+    required this.value,
+    required this.unit,
+  });
+
+  final String title;
+  final double value;
+  final String unit;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Icon(Icons.check_circle, size: 16, color: Colors.white70),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              text,
-              style: TextStyle(color: Colors.white.withOpacity(.92), height: 1.35),
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = isDark ? Colors.white.withValues(alpha: .04) : Colors.white;
+    final border =
+        isDark ? Colors.white.withValues(alpha: .10) : const Color(0x14000000);
+    final titleColor = isDark ? Colors.white : const Color(0xFF111827);
+    final unitColor =
+        isDark ? Colors.white.withValues(alpha: .80) : const Color(0xFF6B7280);
+
+    final displayValue =
+        value <= 0 ? '--' : value.toStringAsFixed(value < 10 ? 1 : 0);
+
+    return SizedBox(
+      width: (MediaQuery.of(context).size.width - 16 * 2 - 12) / 2,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: border),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: TextStyle(
+                color: titleColor,
+                fontWeight: FontWeight.w700,
+                fontSize: 13,
+              ),
             ),
-          ),
-        ],
+            const SizedBox(height: 16),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  displayValue,
+                  style: TextStyle(
+                    color: titleColor,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 26,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text(
+                    unit,
+                    style: TextStyle(
+                      color: unitColor,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
-class _Badge {
-  final String text;
-  final Color color;
-  const _Badge(this.text, this.color);
-}
+class _PrimaryButton extends StatelessWidget {
+  const _PrimaryButton({
+    required this.label,
+    required this.onTap,
+  });
 
-class _BadgeChip extends StatelessWidget {
-  const _BadgeChip({required this.badge});
-  final _Badge badge;
+  final String label;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: badge.color.withOpacity(.18),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: badge.color.withOpacity(.35)),
-      ),
-      child: Text(
-        badge.text,
-        style: TextStyle(color: badge.color, fontWeight: FontWeight.w800, fontSize: 12),
+    return SizedBox(
+      width: double.infinity,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(999),
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(999),
+              gradient: const LinearGradient(
+                colors: AppTheme.gCTA, // Pink to purple gradient
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: .25),
+                  blurRadius: 14,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Text(
+              label,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w800,
+                fontSize: 16,
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -620,15 +1077,10 @@ class _StrokeMeta {
   final String key;
   final String title;
   final String subtitle;
-  final String speedRange;
-  final String forceRange;
-  final IconData icon;
+
   const _StrokeMeta({
     required this.key,
     required this.title,
     required this.subtitle,
-    required this.speedRange,
-    required this.forceRange,
-    required this.icon,
   });
 }

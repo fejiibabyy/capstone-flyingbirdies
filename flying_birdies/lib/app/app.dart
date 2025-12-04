@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'theme.dart';
-import 'package:flying_birdies/features/onboarding/welcome_screen.dart';
+import '../features/shell/home_shell.dart';
 
 class FlyingBirdiesApp extends StatelessWidget {
   const FlyingBirdiesApp({super.key});
@@ -10,8 +10,10 @@ class FlyingBirdiesApp extends StatelessWidget {
     return MaterialApp(
       title: 'Flying Birdies',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.build(),
-      home: const WelcomeScreen(),
+      theme: AppTheme.light(),
+      darkTheme: AppTheme.dark(),
+      themeMode: ThemeMode.system,
+      home: const HomeShell(), // Skip onboarding for testing
     );
   }
 }

@@ -1,23 +1,24 @@
-// lib/widgets/glass_widgets.dart
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flying_birdies/app/theme.dart';
 
-/// ------------------------------------------------------------
-/// BACKGROUND: diagonal purple→indigo→dark gradient
-/// ------------------------------------------------------------
+/// BACKGROUND: theme-aware gradient
 class GradientBackground extends StatelessWidget {
   const GradientBackground({super.key, required this.child});
   final Widget child;
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final colors =
+        isDark ? AppTheme.heroCornersDark : AppTheme.heroCornersLight;
+
     return Container(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: AppTheme.heroCorners,
+          colors: colors,
         ),
       ),
       child: child,
@@ -25,9 +26,7 @@ class GradientBackground extends StatelessWidget {
   }
 }
 
-/// ------------------------------------------------------------
-/// GLASS CARD (blurred, frosted panel)
-/// ------------------------------------------------------------
+/// GLASS CARD (blurred panel)
 class GlassCard extends StatelessWidget {
   const GlassCard({super.key, this.child, this.padding});
   final Widget? child;
@@ -35,6 +34,16 @@ class GlassCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final Color fillColor = isDark
+        ? const Color(0x331F2937) // translucent in dark
+        : Colors.white; // solid card in light
+
+    final Color borderColor = isDark
+        ? const Color(0x22FFFFFF)
+        : Colors.black.withOpacity(0.06);
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(18),
       child: BackdropFilter(
@@ -43,13 +52,13 @@ class GlassCard extends StatelessWidget {
           padding: padding ?? const EdgeInsets.all(16),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(18),
-            color: const Color(0x33FFFFFF), // ~20% white
-            border: Border.all(color: const Color(0x22FFFFFF)),
-            boxShadow: const [
+            color: fillColor,
+            border: Border.all(color: borderColor),
+            boxShadow: [
               BoxShadow(
                 blurRadius: 16,
-                color: Color(0x22000000),
-                offset: Offset(0, 6),
+                color: Colors.black.withOpacity(isDark ? 0.35 : 0.08),
+                offset: const Offset(0, 6),
               ),
             ],
           ),
@@ -60,10 +69,7 @@ class GlassCard extends StatelessWidget {
   }
 }
 
-/// ------------------------------------------------------------
-/// GLASS PANEL (gradient-tinted card, no blur)
-/// Used for the colored cards/tiles in your screenshots.
-/// ------------------------------------------------------------
+/// GLASS PANEL (non-blur gradient tile)
 class GlassPanel extends StatelessWidget {
   const GlassPanel({
     super.key,
@@ -78,19 +84,30 @@ class GlassPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final Gradient gradient = LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: overlayGradient ??
+          (isDark
+              ? [const Color(0x331F2937), const Color(0x33222C44)]
+              : [Colors.white, const Color(0xFFF3F4FF)]),
+    );
+
+    final borderColor = isDark
+        ? Colors.white.withOpacity(.12)
+        : Colors.black.withOpacity(.06);
+
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: overlayGradient ??
-              [Colors.white.withValues(alpha: .10), Colors.white.withValues(alpha: .06)],
-        ),
-        border: Border.all(color: Colors.white.withValues(alpha: .12)),
+        gradient: gradient,
+        border: Border.all(color: borderColor),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: .25),
+            color:
+                Colors.black.withOpacity(isDark ? 0.25 : 0.06),
             blurRadius: 16,
             offset: const Offset(0, 8),
           ),
@@ -101,16 +118,17 @@ class GlassPanel extends StatelessWidget {
   }
 }
 
-/// ------------------------------------------------------------
-/// FEATURE CARD (icon + title + subtitle) with subtle gradient
-/// ------------------------------------------------------------
+// -------- FeatureCard / GradientButton / AppBadge / Pill / StatusDot / BounceTap
+// (unchanged except that they already use white text which is fine on
+// dark tiles; in light mode we mostly use them on colored gradients)
+
 class FeatureCard extends StatelessWidget {
   const FeatureCard({
     super.key,
     required this.icon,
     required this.title,
     required this.subtitle,
-    required this.gradient, // e.g., AppTheme.gPink / gBlue / gTeal
+    required this.gradient,
   });
 
   final IconData icon;
@@ -128,10 +146,10 @@ class FeatureCard extends StatelessWidget {
           end: Alignment.bottomRight,
           colors: gradient,
         ),
-        border: Border.all(color: Colors.white.withValues(alpha: .12)),
+        border: Border.all(color: Colors.white.withOpacity(.12)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: .25),
+            color: Colors.black.withOpacity(.25),
             blurRadius: 16,
             offset: const Offset(0, 8),
           ),
@@ -145,7 +163,7 @@ class FeatureCard extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: .12),
+                color: Colors.white.withOpacity(.12),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(icon, size: 22, color: Colors.white),
@@ -155,18 +173,20 @@ class FeatureCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                      )),
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
+                  ),
                   const SizedBox(height: 6),
                   Text(
                     subtitle,
                     style: TextStyle(
                       fontSize: 14,
-                      color: Colors.white.withValues(alpha: .80),
+                      color: Colors.white.withOpacity(.80),
                     ),
                   ),
                 ],
@@ -179,16 +199,8 @@ class FeatureCard extends StatelessWidget {
   }
 }
 
-/// ------------------------------------------------------------
-/// GRADIENT BUTTON — matches the “Get Started” / “Connect Sensor”
-/// ------------------------------------------------------------
 class GradientButton extends StatelessWidget {
-  const GradientButton({
-    super.key,
-    required this.label,
-    required this.onTap,
-  });
-
+  const GradientButton({super.key, required this.label, required this.onTap});
   final String label;
   final VoidCallback onTap;
 
@@ -204,7 +216,7 @@ class GradientButton extends StatelessWidget {
           gradient: const LinearGradient(colors: AppTheme.gCTA),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: .25),
+              color: Colors.black.withOpacity(.25),
               blurRadius: 10,
               offset: const Offset(0, 6),
             ),
@@ -223,9 +235,6 @@ class GradientButton extends StatelessWidget {
   }
 }
 
-/// ------------------------------------------------------------
-/// BADGE (solid rounded label)
-/// ------------------------------------------------------------
 class AppBadge extends StatelessWidget {
   const AppBadge({super.key, required this.text, required this.color});
   final String text;
@@ -251,9 +260,6 @@ class AppBadge extends StatelessWidget {
   }
 }
 
-/// ------------------------------------------------------------
-/// PILL (chip-like gradient or glass capsule)
-/// ------------------------------------------------------------
 class Pill extends StatelessWidget {
   const Pill({
     super.key,
@@ -280,10 +286,10 @@ class Pill extends StatelessWidget {
 
     final decoration = BoxDecoration(
       gradient: selected ? (selectedGradient ?? fallback) : null,
-      color: selected ? null : Colors.white.withValues(alpha: .08),
+      color: selected ? null : Colors.white.withOpacity(.08),
       borderRadius: BorderRadius.circular(22),
       border: Border.all(
-        color: selected ? Colors.transparent : Colors.white.withValues(alpha: .30),
+        color: selected ? Colors.transparent : Colors.white.withOpacity(.30),
         width: 1,
       ),
     );
@@ -326,9 +332,6 @@ class Pill extends StatelessWidget {
   }
 }
 
-/// ------------------------------------------------------------
-/// STATUS DOT (tiny colored indicator)
-/// ------------------------------------------------------------
 class StatusDot extends StatelessWidget {
   const StatusDot({super.key, required this.color});
   final Color color;
@@ -342,9 +345,7 @@ class StatusDot extends StatelessWidget {
     );
   }
 }
-// --- ANIMATION HELPERS -------------------------------------------------------
 
-// Tap bounce wrapper for buttons/tiles
 class BounceTap extends StatefulWidget {
   const BounceTap({super.key, required this.child, this.onTap});
   final Widget child;
@@ -354,7 +355,8 @@ class BounceTap extends StatefulWidget {
   State<BounceTap> createState() => _BounceTapState();
 }
 
-class _BounceTapState extends State<BounceTap> with SingleTickerProviderStateMixin {
+class _BounceTapState extends State<BounceTap>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _c = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 90),
@@ -390,16 +392,17 @@ class _BounceTapState extends State<BounceTap> with SingleTickerProviderStateMix
   }
 }
 
-// A subtle, breathing gradient that very slowly shifts (background accent)
 class AnimatedGradientBackground extends StatefulWidget {
   const AnimatedGradientBackground({super.key, required this.child});
   final Widget child;
 
   @override
-  State<AnimatedGradientBackground> createState() => _AnimatedGradientBackgroundState();
+  State<AnimatedGradientBackground> createState() =>
+      _AnimatedGradientBackgroundState();
 }
 
-class _AnimatedGradientBackgroundState extends State<AnimatedGradientBackground>
+class _AnimatedGradientBackgroundState
+    extends State<AnimatedGradientBackground>
     with SingleTickerProviderStateMixin {
   late final AnimationController _c =
       AnimationController(vsync: this, duration: const Duration(seconds: 12))
@@ -417,8 +420,8 @@ class _AnimatedGradientBackgroundState extends State<AnimatedGradientBackground>
       animation: _c,
       builder: (_, __) {
         final t = _c.value;
-        // lerp the middle color a bit to get a gentle shift
-        final mid = Color.lerp(const Color(0xFF7E4AED), const Color(0xFF5E79FF), t)!;
+        final mid =
+            Color.lerp(const Color(0xFF7E4AED), const Color(0xFF5E79FF), t)!;
         return Container(
           decoration: BoxDecoration(
             gradient: LinearGradient(

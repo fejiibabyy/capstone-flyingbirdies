@@ -7,6 +7,10 @@ class SessionDetailPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor =
+        isDark ? Colors.white : const Color(0xFF111827);
+
     return GradientBackground(
       child: Scaffold(
         backgroundColor: Colors.transparent,
@@ -20,8 +24,14 @@ class SessionDetailPage extends StatelessWidget {
           child: GlassCard(
             child: Padding(
               padding: const EdgeInsets.all(16),
-              child: Text('Details for $sessionId',
-                  style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
+              child: Text(
+                'Details for $sessionId',
+                style: TextStyle(
+                  color: textColor,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
             ),
           ),
         ),

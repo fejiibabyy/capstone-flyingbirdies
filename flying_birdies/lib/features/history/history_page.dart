@@ -10,7 +10,6 @@ class HistoryPage extends StatelessWidget {
     return GradientBackground(
       child: Scaffold(
         backgroundColor: Colors.transparent,
-        // Let the gradient paint under the status bar
         extendBodyBehindAppBar: true,
         appBar: AppBar(
           title: const Text('History'),
@@ -18,9 +17,10 @@ class HistoryPage extends StatelessWidget {
           elevation: 0,
           backgroundColor: Colors.transparent,
         ),
-        // Give some top padding so content isn’t under the notch
         body: Padding(
-          padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top + 8),
+          padding: EdgeInsets.only(
+            top: MediaQuery.of(context).padding.top + 8,
+          ),
           child: const HistoryTab(),
         ),
       ),
